@@ -1,0 +1,12 @@
+#!/bin/sh
+# Blocks the commit if the staged changes contain secrets, key-shaped strings, private files or
+# any term from ops/config/sensitive_terms.txt. Enabled by: git config core.hooksPath .githooks
+# (bootstrap does this). Git for Windows runs this file with its bundled sh.
+root="$(git rev-parse --show-toplevel)" || exit 1
+for py in python3 python; do
+    if command -v "$py" >/dev/null 2>&1 && "$py" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+        exec "$py" "$root/ops/tools/secret_scan.py" --staged
+    fi
+done
+echo "pre-commit: no Python 3.9+ found, so the secret scan cannot run; commit blocked" >&2
+exit 1

@@ -1,0 +1,23 @@
+# Template for ops/config/limits.yaml (git-ignored). All values are placeholders to tune.
+# Spend is in the currency of ops/config/prices.yaml.
+
+caps:
+  max_spend: 5.00           # hard stop for a batch; warning at 90%, clean stop and checkpoint at 100%
+  max_llm_calls: 6000       # LLM calls across a batch (counted by the local meter)
+  wall_clock_minutes: 600   # total time for a batch
+  max_agents: 30            # warn above this; upstream turns every typed graph entity into an agent
+
+rounds:
+  pilot: 10                 # the pilot always runs first (12 agents or fewer recommended)
+  real_min: 20
+  real_max: 30
+  max_rounds: 40            # absolute ceiling
+
+runs:
+  per_question: 2
+  per_question_high_unknown: 3
+  unknown_threshold: 2      # more UNKNOWN facts than this -> per_question_high_unknown runs
+
+provider:
+  max_concurrency: 4        # simultaneous requests to the LLM provider
+  requests_per_minute: 60   # client-side cap; set at or below your key's quota

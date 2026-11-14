@@ -1,0 +1,17 @@
+# Template for ops/config/sensitive_terms.txt (git-ignored). Copy it and list your REAL terms.
+#
+# The leak gate refuses to upload anything (seed, simulation requirement, UNKNOWN variants) that
+# contains any term below, and reports which terms matched without printing the surrounding text.
+# The pre-commit hook also blocks commits that contain any of these terms.
+#
+# One term per line. Matching is case-insensitive and on word boundaries.
+# Blank lines and lines starting with '#' are ignored.
+# List every form you use: full names, surnames, nicknames, company names and abbreviations,
+# counterparties, project code names, internal place names.
+#
+# Examples (fictional):
+Jane Example
+Example
+Acme Widgets Ltd
+Acme
+Project Bluebird

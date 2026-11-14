@@ -1,0 +1,67 @@
+# ----- Secrets: API keys and environment files (keys come from the environment or the OS keychain) -----
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+secrets/
+
+# ----- Private configuration (real values; the committed *.example.* files are templates) -----
+ops/config/sensitive_terms.txt
+ops/config/limits.yaml
+ops/config/prices.yaml
+ops/config/zep_limits.yaml
+
+# ----- Seeds, questions and pseudonymisation mappings -----
+seeds/
+ops/seeds/
+*.seed.md
+*.mapping.json
+*.mapping.yaml
+mappings/
+ops/mappings/
+
+# ----- Run artefacts: outputs, transcripts, reports, logs -----
+ops/runs/
+outputs/
+ops/outputs/
+transcripts/
+*.transcript.json
+ops/logs/
+*.log
+ops/state/
+
+# ----- Upstream MiroFish clone (fetched at the pinned commit by bootstrap, never vendored) -----
+mirofish/
+
+# ----- Python and Node -----
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+node_modules/
+
+# ----- Caches and local tools -----
+.cache/
+ops/cache/
+.tools/
+
+# ----- OS and editor junk -----
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/
+.cursor/
