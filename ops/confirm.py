@@ -6,8 +6,7 @@ import sys
 from typing import Callable, List, Optional
 from urllib.parse import urlsplit
 
-# Hard-wired in upstream's zep-cloud 3.25.0 SDK (ZEP_API_URL is not honoured).
-ZEP_HOST = "api.getzep.com"
+from ops.zep import ZEP_HOST
 
 
 class NotConfirmed(RuntimeError):
@@ -32,20 +31,24 @@ def data_flows(llm_base_url: str) -> List[str]:
     ]
 
 
-def confirm(title: str, details: List[str], phrase: str, llm_base_url: str,
-            ask: Optional[Callable[[str], str]] = None, out=None, interactive: Optional[bool] = None) -> None:
-    """Print what will be sent and require the exact phrase; raise NotConfirmed otherwise."""
+def typed_phrase(lines: List[str], phrase: str, refused: str, ask: Optional[Callable[[str], str]] = None,
+                 out=None, interactive: Optional[bool] = None) -> None:
+    """Print the lines and require the exact phrase; raise NotConfirmed(refused) otherwise."""
     out = out or sys.stdout
     if ask is None:
         if not (sys.stdin.isatty() if interactive is None else interactive):
             raise NotConfirmed("a typed confirmation is required, and no one is at the terminal (stdin is not a TTY)")
         ask = input
-    print(title, file=out)
-    for line in details:
-        print(f"  {line}", file=out)
-    print("\nThis sends data to:", file=out)
-    for line in data_flows(llm_base_url):
-        print(f"  {line}", file=out)
+    for line in lines:
+        print(line, file=out)
     answer = ask(f"\nType '{phrase}' to continue, anything else to stop: ")
     if answer.strip() != phrase:
-        raise NotConfirmed("not confirmed; nothing was sent")
+        raise NotConfirmed(refused)
+
+
+def confirm(title: str, details: List[str], phrase: str, llm_base_url: str,
+            ask: Optional[Callable[[str], str]] = None, out=None, interactive: Optional[bool] = None) -> None:
+    """Print what will be sent and require the exact phrase; raise NotConfirmed otherwise."""
+    lines = [title, *(f"  {line}" for line in details), "\nThis sends data to:",
+             *(f"  {line}" for line in data_flows(llm_base_url))]
+    typed_phrase(lines, phrase, "not confirmed; nothing was sent", ask=ask, out=out, interactive=interactive)

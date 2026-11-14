@@ -21,6 +21,7 @@ from ops.config import LLMConfig
 from ops.pricing import Prices
 from ops.schedule import expected_turns, scale_schedule
 from ops.stages import STAGE_GROUP
+from ops.zep_usage import format_estimate
 
 GROUPS = ("setup", "simulation", "report")
 COST_STAGES = {"ontology": "setup", "prepare": "setup", "rounds": "simulation", "report": "report"}
@@ -299,4 +300,6 @@ def format_plan(plan: Dict[str, Any]) -> str:
                  f"{per_run['low']['turns']:.0f} - {per_run['high']['turns']:.0f}")
     lines += [f"  CUT: {c}" for c in plan["cuts"]]
     lines += [f"  WARNING: {w}" for w in plan["warnings"]]
+    if plan.get("zep"):
+        lines += [f"  {line}" for line in format_estimate(plan["zep"])]
     return "\n".join(lines)

@@ -1,4 +1,5 @@
-"""doctor: check the Gemini key, every configured model, JSON mode, tool calling, latency and usage.
+"""doctor: check the Gemini key, every configured model, JSON mode, tool calling, latency and usage,
+and that the Zep key is accepted.
 
 Only the fixed synthetic prompts in ops/json_checks.py are sent; no seed or run content. The
 results file (ops/state/doctor.json) holds counts and timings, never prompts, answers or keys.
@@ -11,10 +12,12 @@ import statistics
 import sys
 import time
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, TextIO
+from typing import Any, Callable, Dict, List, Optional, TextIO
 from urllib.parse import urlsplit
 
 from ops import paths
+from ops.redact import redact
+from ops.zep import ZEP_HOST, make_client, status_of
 from ops.config import ConfigError, LLMConfig, StageModel, load_llm_config
 from ops.limits import load_limits
 from ops.json_checks import (JSON_TESTS, SYSTEM_PROMPT, TOOL_TEST_PROMPT, TOOL_TEST_TOOLS,
@@ -23,6 +26,7 @@ from ops.keys import Key, get_key
 from ops.provider import ChatResult, ProviderClient, ProviderError, RateLimiter, Stats
 
 JSON_PASS_REQUIRED = 4   # of 5; MiroFish retries malformed JSON a few times itself
+ZEP_KEY = "ZEP_API_KEY"
 
 ClientFactory = Callable[[LLMConfig, Key, Stats], ProviderClient]
 
@@ -138,8 +142,29 @@ def check_model(client: ProviderClient, stage: StageModel, groups: List[str],
     }
 
 
+def check_zep(report: Report, zep_factory: Callable[[str], Any]) -> Dict[str, object]:
+    """One authenticated read (the Zep project info); sends only the key."""
+    print(f"\nZep Cloud ({ZEP_HOST})", file=report.out)
+    key = get_key(ZEP_KEY, ZEP_KEY)
+    if key is None:
+        report.line("FAIL", f"no Zep key: set {ZEP_KEY} or run `python -m ops keys set {ZEP_KEY}`; runs need it")
+        return {"key": False}
+    try:
+        zep_factory(key.value).project.get()
+    except Exception as error:  # noqa: BLE001 - SDK API errors carry a status; network errors do not
+        status = status_of(error)
+        if status in (401, 403):
+            report.line("FAIL", f"the Zep key was rejected (HTTP {status})")
+        else:
+            report.line("FAIL", f"could not reach Zep: {redact(type(error).__name__ + ' ' + str(status or ''))}")
+        return {"key": True, "reachable": False, "status": status}
+    report.line("PASS", f"Zep key accepted ({key.source})")
+    report.info("Before a real run: read Zep's current retention and deletion terms (`python -m ops privacy_report`)")
+    return {"key": True, "reachable": True}
+
+
 def run(out: TextIO = sys.stdout, client_factory: ClientFactory = default_client,
-        config_dir: Path = paths.CONFIG_DIR) -> int:
+        config_dir: Path = paths.CONFIG_DIR, zep_factory: Callable[[str], Any] = make_client) -> int:
     report = Report(out)
     print("doctor: checking the Gemini setup", file=out)
     try:
@@ -185,6 +210,7 @@ def run(out: TextIO = sys.stdout, client_factory: ClientFactory = default_client
                             "of calls. Use a paid-tier key with billing enabled.")
     report.info("Before a real run: use a paid-tier key with billing enabled, and read Google's current "
                 "data-use terms for paid and unpaid use: https://ai.google.dev/gemini-api/terms")
+    zep = check_zep(report, zep_factory)
 
     paths.write_private_text(paths.STATE_DIR / "doctor.json", json.dumps({
         "checked_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -192,6 +218,7 @@ def run(out: TextIO = sys.stdout, client_factory: ClientFactory = default_client
         "key_source": key.source,
         "models": models,
         "provider_stats": counters,
+        "zep": zep,
         "seconds": round(time.monotonic() - started, 1),
         "failures": report.failures,
         "warnings": report.warnings,

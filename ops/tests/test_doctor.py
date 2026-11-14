@@ -13,6 +13,7 @@ from ops import doctor, keys, paths
 from ops.config import RetrySettings
 from ops.provider import ProviderClient
 from ops.tests.fake_provider import FAKE_GOOGLE_KEY, FakeProvider, completion
+from ops.tests.fake_zep import FAKE_ZEP_KEY, FakeZep, FakeZepError
 
 GOOD_ANSWERS = {
     "entity_types": {"entity_types": [{"name": "Council", "description": "city body"},
@@ -54,12 +55,17 @@ class DoctorTests(unittest.TestCase):
         patches = [
             mock.patch.object(paths, "STATE_DIR", self.state_dir),
             mock.patch.object(keys, "_from_keyring", return_value=None),
-            mock.patch.dict(os.environ, {"GEMINI_API_KEY": FAKE_GOOGLE_KEY}),
+            mock.patch.dict(os.environ, {"GEMINI_API_KEY": FAKE_GOOGLE_KEY, "ZEP_API_KEY": FAKE_ZEP_KEY}),
         ]
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
         self.factory_calls = 0
+        self.zep = FakeZep()
+
+    def zep_factory(self, api_key):
+        self.zep.api_keys.append(api_key)
+        return self.zep
 
     def write_config(self, base_url, setup="setup-model", simulation="sim-model", report="setup-model"):
         stages = {"setup": {"model": setup, "reasoning_effort": None},
@@ -75,7 +81,8 @@ class DoctorTests(unittest.TestCase):
 
     def run_doctor(self):
         out = io.StringIO()
-        code = doctor.run(out=out, client_factory=self.factory, config_dir=self.config_dir)
+        code = doctor.run(out=out, client_factory=self.factory, config_dir=self.config_dir,
+                          zep_factory=self.zep_factory)
         return code, out.getvalue()
 
     def test_placeholders_fail_before_any_network_call(self):
@@ -100,7 +107,10 @@ class DoctorTests(unittest.TestCase):
             requests = list(fake.requests)
         self.assertEqual(code, 0, output)
         self.assertIn("doctor passed", output)
+        self.assertIn("Zep key accepted", output)
+        self.assertEqual(self.zep.api_keys, [FAKE_ZEP_KEY])
         self.assertNotIn(FAKE_GOOGLE_KEY, output)
+        self.assertNotIn(FAKE_ZEP_KEY, output)
         looked_up = sorted(r["path"].rsplit("/", 1)[-1] for r in requests if r["method"] == "GET")
         self.assertEqual(looked_up, ["setup-model", "sim-model"])
         tool_requests = [r for r in requests if r["body"].get("tools")]
@@ -170,6 +180,17 @@ class DoctorTests(unittest.TestCase):
             code, output = self.run_doctor()
         self.assertEqual(code, 1)
         self.assertIn("token usage missing", output)
+
+    def test_rejected_or_missing_zep_key_fails(self):
+        self.zep.fail_with = FakeZepError(401)
+        with FakeProvider(good_responder()) as fake:
+            self.write_config(fake.base_url)
+            code, output = self.run_doctor()
+            with mock.patch.dict(os.environ, {"ZEP_API_KEY": ""}):
+                missing_code, missing_output = self.run_doctor()
+        self.assertEqual((code, missing_code), (1, 1))
+        self.assertIn("Zep key was rejected (HTTP 401)", output)
+        self.assertIn("no Zep key", missing_output)
 
 
 if __name__ == "__main__":

@@ -34,3 +34,5 @@ Local-only parts: Ollama setup (`ollama_serve.sh`, `build_model.sh`, `.tools/oll
 `ops/provider.py`, `ops/stages.py`, `ops/doctor.py`, `ops/cli.py`, `ops/config.py`, `ops/keys.py`, `ops/redact.py`, `ops/paths.py` and the tests in `ops/tests/` (Phase 2).
 
 `ops/limits.py`, `ops/pricing.py`, `ops/leakgate.py`, `ops/budget.py`, `ops/confirm.py`, `ops/config/limits.example.yaml`, `ops/config/prices.example.yaml` and the Phase 3 tests in `ops/tests/` (Phase 3).
+
+`ops/zep.py`, `ops/zep_usage.py`, `ops/purge.py` (Zep part; the local repo's `ops/scripts/purge.py` deleted from the local memory store, which this profile does not have), `ops/config/zep_limits.example.yaml`, `ops/tests/fake_zep.py`, `ops/tests/test_zep.py` (Phase 4).

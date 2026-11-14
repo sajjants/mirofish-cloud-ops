@@ -49,6 +49,11 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     return run_command(args.command, args.batch, replan=getattr(args, "replan", False), entity_types=entity_types)
 
 
+def _cmd_purge(args: argparse.Namespace) -> int:
+    from ops.purge import purge_command
+    return purge_command(args.batch)
+
+
 def _cmd_relay(args: argparse.Namespace) -> int:
     from ops.relay import serve
     return serve(args.port)
@@ -73,6 +78,10 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "run":
             command.add_argument("--replan", action="store_true", help="re-plan instead of using the confirmed plan")
         command.set_defaults(func=_cmd_batch)
+
+    purge = commands.add_parser("purge", help="delete a batch's Zep Cloud graphs and verify they are gone")
+    purge.add_argument("--batch", required=True)
+    purge.set_defaults(func=_cmd_purge)
 
     relay = commands.add_parser("relay", help="run the metering relay in the foreground (normally started by start)")
     relay.add_argument("--port", type=int, default=5011)

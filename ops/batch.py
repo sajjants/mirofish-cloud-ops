@@ -26,7 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, TextIO
 
 import psutil
 
-from ops import envfile, leakgate, paths
+from ops import envfile, leakgate, paths, zep_usage
 from ops.budget import BATCH_ID, Budget
 from ops.config import LLMConfig, load_llm_config
 from ops.confirm import NotConfirmed, confirm
@@ -38,6 +38,10 @@ from ops.plan import COST_STAGES, format_plan, low_high, make_plan, measured_mod
 from ops.pricing import Prices, load_prices
 from ops.relay import load_relay_state
 from ops.schedule import SIMULATIONS_DIR, apply_clock_shift
+from ops.zep import ZepResources
+from ops.zep_usage import format_estimate, load_zep_limits
+
+_LOAD = object()   # "read ops/config/zep_limits.yaml"; None means "no quotas configured"
 
 PILOT = "pilot"
 REAL = "real"
@@ -293,6 +297,11 @@ class BatchHooks(RunHooks):
               f"{self.rounds} rounds: {result['expected_agent_turns']:.0f}")
         return result
 
+    def zep_resources(self, project_id: str, graph_ids: List[str], batch_ids: List[str]) -> None:
+        ZepResources(self.batch.batch_id).record(self.run_id, project_id, graph_ids, batch_ids)
+        self.batch.log(f"[graph] recorded Zep resources for purge: graphs {', '.join(graph_ids) or '-'}; "
+                       f"upload batches {', '.join(batch_ids) or '-'}")
+
 
 class Batch:
     def __init__(self, batch_id: str, *, client: Optional[MiroFishClient] = None,
@@ -302,9 +311,11 @@ class Batch:
                  interactive: Optional[bool] = None, poll_interval_s: float = 5.0,
                  sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
                  simulations_dir: Path = SIMULATIONS_DIR, terms: Optional[list] = None,
-                 env_path: Path = envfile.ENV_PATH, out: Optional[TextIO] = None):
+                 env_path: Path = envfile.ENV_PATH, out: Optional[TextIO] = None,
+                 zep_limits: Any = _LOAD):
         self.batch_id = batch_id
         self.out = out
+        self.zep_limits = load_zep_limits() if zep_limits is _LOAD else zep_limits
         self.dir = batch_dir(batch_id)
         inputs_path = self.dir / "inputs.json"
         if not inputs_path.exists():
@@ -368,6 +379,11 @@ class Batch:
         seed = self.dir / "inputs" / "seed.md"
         return [{"index": 0, "choices": {}, "seed_file": "inputs/seed.md", "seed_sha256": sha256_file(seed)}]
 
+    def zep_estimate(self, agents_per_run: List[int]) -> Dict[str, Any]:
+        seed_characters = max(len((self.dir / v["seed_file"]).read_text(encoding="utf-8")) for v in self.variants())
+        open_graphs = len(ZepResources(self.batch_id).open_ids()["graphs"])
+        return zep_usage.estimate(seed_characters, agents_per_run, self.zep_limits, open_graphs)
+
     def requirement(self, question_id: str) -> str:
         question = next(q for q in self.inputs["questions"] if q["id"] == question_id)
         return (self.dir / question["requirement_file"]).read_text(encoding="utf-8")
@@ -409,6 +425,11 @@ class Batch:
         boosted = [k for k in ("LLM_BOOST_API_KEY", "LLM_BOOST_BASE_URL", "LLM_BOOST_MODEL_NAME") if env.get(k)]
         if boosted:
             raise BatchError(f"mirofish/.env sets {', '.join(boosted)}; boost calls would bypass the relay (D2)")
+        if not env.get("ZEP_API_KEY"):
+            raise BatchError("mirofish/.env has no ZEP_API_KEY; MiroFish needs it for Zep Cloud "
+                             "(`python -m ops start` writes it from the environment or the OS keychain)")
+        if env.get("ZEP_API_URL"):
+            raise BatchError("mirofish/.env sets ZEP_API_URL; remove it (only Zep Cloud is allowed)")
 
     # ----- one run
     def execute(self, spec: Dict[str, Any], kind: str) -> Dict[str, Any]:
@@ -558,7 +579,8 @@ class Batch:
                  "(unmeasured estimate)",
                  f"hard ceilings: pilot {cur} {self.limits['pilot']['max_spend']:.2f}, batch {cur} "
                  f"{self.limits['caps']['max_spend']:.2f}, {self.limits['caps']['max_llm_calls']} calls, "
-                 f"{self.limits['caps']['wall_clock_minutes']:.0f} min"],
+                 f"{self.limits['caps']['wall_clock_minutes']:.0f} min",
+                 *format_estimate(self.zep_estimate([self.limits["pilot"]["max_agents"]]))],
                 f"send {self.batch_id}", self.llm.base_url, ask=self.ask, out=self.out, interactive=self.interactive)
         self.execute(spec, PILOT)
         summary = self.pilot_summary(spec["run_id"])
@@ -569,9 +591,12 @@ class Batch:
 
     # ----- real runs
     def make_plan(self) -> Dict[str, Any]:
-        return make_plan(self.limits, self.llm, self.prices, self.cost_model(),
+        plan = make_plan(self.limits, self.llm, self.prices, self.cost_model(),
                          [q["id"] for q in self.inputs["questions"]], len(self.inputs.get("unknowns") or []),
                          used=self.used(), batch_id=self.batch_id)
+        pending = [s for s in plan["runs"] if self.state["runs"].get(s["run_id"], {}).get("status") != "done"]
+        plan["zep"] = self.zep_estimate([plan["per_run"]["high"]["agents"]] * len(pending))
+        return plan
 
     def run(self, replan: bool = False) -> List[Dict[str, Any]]:
         pilot_path = self.dir / "pilot.json"

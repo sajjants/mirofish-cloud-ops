@@ -25,6 +25,7 @@ from ops.tests.fake_provider import FAKE_GOOGLE_KEY
 SESSION = "session-token-for-tests-only"
 CONTROL = "control-token-for-tests-only"
 TERMS = [Term("Zebulon", 1), Term("Quixote Holdings", 2)]
+GRAPH_ID = "mirofish_00000000000000a1"
 
 
 def llm_config(base_url: str):
@@ -138,8 +139,10 @@ class FakeMiroFish:
         return {"project_id": "proj_1"}
 
     def get(self, path: str, **kwargs) -> Dict[str, Any]:
+        if path.startswith("/api/graph/project/"):
+            return {"project_id": "proj_1", "graph_id": GRAPH_ID, "zep_batch_id": "zb-1"}
         if path.startswith("/api/graph/task/"):
-            return {"status": "completed", "result": {"graph_id": "mirofish_g1"}}
+            return {"status": "completed", "result": {"graph_id": GRAPH_ID}}
         if path.endswith("/run-status"):
             if self.runner == "running":
                 for _ in range(self.calls_per_poll):

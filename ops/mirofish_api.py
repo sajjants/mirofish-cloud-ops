@@ -190,6 +190,9 @@ class RunHooks:
         """The 'schedule' stage, after prepare."""
         return {}
 
+    def zep_resources(self, project_id: str, graph_ids: List[str], batch_ids: List[str]) -> None:
+        """Called as soon as new Zep graph or batch ids appear in upstream's project."""
+
 
 class RunPipeline:
     """One MiroFish run with a resumable manifest in ops/runs/<RUN_ID>/."""
@@ -289,10 +292,35 @@ class RunPipeline:
         project_id = self._stage("ontology", ontology)["project_id"]
         self.manifest["project_id"] = project_id
 
+        def remember_zep() -> None:
+            """Upstream saves the graph and Zep batch ids in its project before creating them; copy them now."""
+            try:
+                project = c.get(f"/api/graph/project/{urllib.parse.quote(project_id)}")
+            except ApiError as exc:
+                self.log(f"[graph] could not read the project to record Zep ids yet: {exc}")
+                return
+            zep = self.manifest.setdefault("zep", {"graph_ids": [], "batch_ids": []})
+            changed = False
+            for field, key in (("graph_id", "graph_ids"), ("zep_batch_id", "batch_ids")):
+                value = project.get(field)
+                if value and value not in zep[key]:
+                    zep[key].append(value)
+                    changed = True
+            if changed:
+                self._save()
+                self.hooks.zep_resources(project_id, list(zep["graph_ids"]), list(zep["batch_ids"]))
+
         def graph():
             task_id = c.post("/api/graph/build", {"project_id": project_id})["task_id"]
-            state = self._poll(lambda: c.get(f"/api/graph/task/{task_id}"),
-                               lambda s: s.get("status") == "completed", "graph build", stage_timeout_s)
+
+            def fetch():
+                remember_zep()
+                return c.get(f"/api/graph/task/{task_id}")
+
+            try:
+                state = self._poll(fetch, lambda s: s.get("status") == "completed", "graph build", stage_timeout_s)
+            finally:
+                remember_zep()
             return dict(state.get("result") or {})
 
         graph_id = self._stage("graph", graph)["graph_id"]

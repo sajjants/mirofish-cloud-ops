@@ -1,0 +1,25 @@
+# Zep Cloud usage warning for `plan` and `pilot`. Copy to zep_limits.yaml (git-ignored) and edit.
+#
+# This repository does not state any Zep quota or price. Fill `quotas` from your own Zep plan
+# (account page or Zep's current pricing page) and record where and when you read them.
+# A quota left null is not checked. Exceeding a quota only produces a warning: MiroFish's Zep
+# calls go directly from its SDK to Zep, so the wrapper cannot meter or stop them.
+
+source_url: SET_ME          # where you read your plan's quotas
+checked_on: SET_ME          # YYYY-MM-DD
+period: month               # the period your quotas apply to (informational)
+warn_fraction: 0.8          # warn when one batch alone would use this share of a quota
+
+quotas:
+  episodes: null            # graph episodes; MiroFish adds one per seed chunk, per run
+  episode_characters: null  # characters ingested as episodes
+  searches: null            # graph searches
+  graphs: null              # graphs that exist at the same time (one per run until purged)
+
+# How upstream MiroFish (pinned commit) uses Zep. Change only if upstream changes.
+usage:
+  chunk_size: 500           # Config.DEFAULT_CHUNK_SIZE
+  chunk_overlap: 50         # Config.DEFAULT_CHUNK_OVERLAP
+  searches_per_agent: 2     # oasis_profile_generator: one edge search and one node search per entity
+  report_searches: 60       # estimate, not measured: up to 5 tool calls per report section,
+                            # and some report tools search several times

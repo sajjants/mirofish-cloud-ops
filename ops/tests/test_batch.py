@@ -10,7 +10,10 @@ from ops.budget import Budget
 from ops.confirm import NotConfirmed, confirm
 from ops.mirofish_api import StopRun
 from ops.tests.fake_provider import FakeProvider, completion
-from ops.tests.helpers import SESSION, TERMS, FakeMiroFish, RelayFixture, TempState, limits, llm_config, prices
+from ops.tests.fake_zep import FAKE_ZEP_KEY
+from ops.tests.helpers import GRAPH_ID, SESSION, TERMS, FakeMiroFish, RelayFixture, TempState, limits, llm_config, \
+    prices
+from ops.zep import ZepResources
 
 TINY_ESTIMATES = {"estimates__setup": {"fixed_calls": 1, "calls_per_agent": 1, "prompt_tokens_per_call": 100,
                                        "output_tokens_per_call": 10},
@@ -32,7 +35,8 @@ class BatchTestCase(unittest.TestCase):
         self.sims = root / "simulations"
         self.mirofish = FakeMiroFish(self.relay.url, self.sims)
         self.env = root / "mirofish.env"
-        self.env.write_text(f"LLM_BASE_URL={self.relay.url}/v1\nLLM_API_KEY={SESSION}\nFLASK_PORT=5001\n")
+        self.env.write_text(f"LLM_BASE_URL={self.relay.url}/v1\nLLM_API_KEY={SESSION}\nFLASK_PORT=5001\n"
+                            f"ZEP_API_KEY={FAKE_ZEP_KEY}\n")
         self.batch_dir = paths.RUNS_DIR / "b1"
         (self.batch_dir / "inputs").mkdir(parents=True)
         (self.batch_dir / "inputs" / "seed.md").write_text("VERIFIED: Person A runs Org B.\n")
@@ -40,6 +44,7 @@ class BatchTestCase(unittest.TestCase):
         self.write_inputs(pseudonymized=True)
         self.answers = []
         self.logs = []
+        self.out = io.StringIO()
 
     def write_inputs(self, pseudonymized: bool) -> None:
         (self.batch_dir / "inputs.json").write_text(json.dumps({
@@ -51,7 +56,7 @@ class BatchTestCase(unittest.TestCase):
                      limits=lim or limits(**TINY_ESTIMATES), llm=llm_config(self.provider.base_url), prices=prices(),
                      log=self.logs.append, ask=lambda _prompt: phrase, interactive=True, poll_interval_s=0,
                      sleep=lambda _s: None, simulations_dir=self.sims, terms=TERMS, env_path=self.env,
-                     out=io.StringIO())
+                     out=self.out, zep_limits=None)
 
 
 class PilotTests(BatchTestCase):
@@ -70,7 +75,13 @@ class PilotTests(BatchTestCase):
         self.assertEqual(self.mirofish.starts[0]["enable_graph_memory_update"], False)
         plan = json.loads((self.batch_dir / "plan.json").read_text())
         self.assertEqual(plan["cost_source"], "pilot")
+        self.assertEqual(plan["zep"]["runs"], len(plan["runs"]))
         self.assertTrue(all(status == 200 for status in self.mirofish.llm_statuses))
+        self.assertIn("Zep (estimated, not metered) for 1 run(s)", self.out.getvalue())
+        self.assertEqual(manifest["zep"], {"graph_ids": [GRAPH_ID], "batch_ids": ["zb-1"]})
+        record = ZepResources("b1").load()
+        self.assertEqual(record["graphs"][GRAPH_ID]["run_id"], "b1_pilot")
+        self.assertEqual(list(record["batches"]), ["zb-1"])
 
     def test_too_many_agents_stops_before_personas_and_entity_types_resume(self):
         self.mirofish.entities = {"Person": 9, "Organization": 5}
@@ -132,6 +143,16 @@ class PreflightTests(BatchTestCase):
         with self.assertRaises(BatchError) as caught:
             self.make_batch().pilot()
         self.assertIn("bypass metering", str(caught.exception))
+
+    def test_mirofish_needs_the_zep_key_and_no_redirected_zep_url(self):
+        base = f"LLM_BASE_URL={self.relay.url}/v1\nLLM_API_KEY={SESSION}\n"
+        for env, expected in ((base, "no ZEP_API_KEY"),
+                              (base + f"ZEP_API_KEY={FAKE_ZEP_KEY}\nZEP_API_URL=https://example.invalid\n",
+                               "ZEP_API_URL")):
+            self.env.write_text(env)
+            with self.assertRaises(BatchError) as caught:
+                self.make_batch().pilot()
+            self.assertIn(expected, str(caught.exception))
 
     def test_wrong_confirmation_sends_nothing(self):
         with self.assertRaises(NotConfirmed):
