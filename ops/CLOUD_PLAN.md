@@ -117,4 +117,4 @@ New dependencies for the wrapper (spec-mandated): `psutil` and `keyring`, plus `
 | D7 | Wrapper dependencies | Own virtualenv with hash-pinned `psutil`, `keyring`, `PyYAML`, `zep-cloud==3.25.0`. |
 | D8 | One-time downloads | **Pre-cache and run offline**, so `allowed_hosts.txt` lists only the Gemini and Zep hosts. |
 
-Also pending from Phase 0: the CI workflow file (`.github/workflows/secret-scan.yml`) awaits your approval.
+**Reviewed 2026-11-14: all recommendations D1–D8 accepted.**
