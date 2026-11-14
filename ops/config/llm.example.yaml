@@ -1,0 +1,33 @@
+# Template for ops/config/llm.yaml (git-ignored). Model names are PLACEHOLDERS: check Google's current
+# model list and fill them in. doctor refuses to run while any model is still SET_ME.
+
+provider:
+  # Gemini's OpenAI-compatible endpoint (verified 2026-11-14 at ai.google.dev/gemini-api/docs/openai; beta).
+  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+  api_key_env: GEMINI_API_KEY          # or the OS keychain entry set with: python -m ops keys set gemini
+  timeout_seconds: 120
+
+# One model and reasoning effort per stage group. The relay rewrites each request's model and adds
+# reasoning_effort while that stage runs; MiroFish itself always sends one model name.
+#   setup:      ontology, personas, simulation config   (graph extraction is done by Zep, not Gemini)
+#   simulation: every agent turn (posts, replies, likes); one model for all agents
+#   report:     report agent and agent interviews
+# reasoning_effort: null (model default), none, minimal, low, medium, high or xhigh. Which values a model
+# accepts, and whether thinking can be turned off, depends on the model (see Google's thinking docs).
+stages:
+  setup:
+    model: SET_ME
+    reasoning_effort: null
+  simulation:
+    model: SET_ME
+    reasoning_effort: null
+  report:
+    model: SET_ME
+    reasoning_effort: null
+
+# Retries for 429 and 5xx: exponential backoff with full jitter, honouring Retry-After or Google's
+# retryDelay when given. Safety refusals and empty responses are retried once, then recorded as failed.
+retry:
+  max_retries: 5
+  base_delay_seconds: 1.0
+  max_delay_seconds: 60.0

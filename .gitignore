@@ -12,6 +12,7 @@ ops/config/sensitive_terms.txt
 ops/config/limits.yaml
 ops/config/prices.yaml
 ops/config/zep_limits.yaml
+ops/config/llm.yaml
 
 # ----- Seeds, questions and pseudonymisation mappings -----
 seeds/

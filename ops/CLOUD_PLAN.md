@@ -118,3 +118,15 @@ New dependencies for the wrapper (spec-mandated): `psutil` and `keyring`, plus `
 | D8 | One-time downloads | **Pre-cache and run offline**, so `allowed_hosts.txt` lists only the Gemini and Zep hosts. |
 
 **Reviewed 2026-11-14: all recommendations D1–D8 accepted.**
+
+**D1 revised 2026-11-15: per-stage routing in the relay.**
+- `ops/config/llm.yaml` maps three stage groups to a model and a `reasoning_effort`:
+  - `setup`: ontology, personas, simulation config;
+  - `simulation`: agent turns;
+  - `report`: report agent and interviews.
+- `run` tells the relay which stage is active. The relay rewrites each request's `model` and adds `reasoning_effort` (upstream never sends it). MiroFish code is unchanged, and all agents inside the simulation still share one model.
+- Defaults: every group uses the same model at the provider's default effort until you fill in the table.
+- Graph extraction is done by Zep's own models, so no Gemini setting affects it.
+- `doctor` tests every configured model. `plan` and the meter price each stage with its own model.
+
+**Key handling that follows from the relay:** MiroFish sends its requests to the relay with a random per-session token in place of a key. The relay checks that token and swaps in the real Gemini key, so the Gemini key is never written to `mirofish/.env`. The token also stops other local programs from spending through the relay. The Zep key still has to be in `mirofish/.env`, because upstream's Zep SDK connects directly.

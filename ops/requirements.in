@@ -1,0 +1,7 @@
+# Direct dependencies of the wrapper (not of MiroFish, which uses its own lockfiles).
+# Lock with: uv pip compile ops/requirements.in --universal --generate-hashes --python-version 3.11 -o ops/requirements.lock
+# Install with: uv pip sync --require-hashes ops/requirements.lock  (bootstrap does this)
+PyYAML>=6.0
+psutil>=5.9
+keyring>=24
+zep-cloud==3.25.0   # same version upstream's lockfile pins; used by purge to delete Zep data

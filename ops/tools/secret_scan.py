@@ -49,7 +49,7 @@ FORBIDDEN_PATHS: Sequence[Tuple[str, re.Pattern]] = (
     ("env-file", re.compile(r"(^|/)\.env(\.(?!example$)[^/]+)?$")),
     ("key-file", re.compile(r"\.(key|pem|p12)$")),
     ("sensitive-terms-file", re.compile(r"(^|/)ops/config/sensitive_terms\.txt$")),
-    ("private-config", re.compile(r"(^|/)ops/config/(limits|prices|zep_limits)\.yaml$")),
+    ("private-config", re.compile(r"(^|/)ops/config/(limits|prices|zep_limits|llm)\.yaml$")),
     ("mapping-file", re.compile(r"\.mapping\.(json|ya?ml)$|(^|/)(ops/)?mappings/")),
     ("seed-file", re.compile(r"(^|/)(ops/)?seeds/|\.seed\.md$")),
     ("run-output", re.compile(r"(^|/)ops/(runs|outputs|logs|state)/|(^|/)(outputs|transcripts)/")),
