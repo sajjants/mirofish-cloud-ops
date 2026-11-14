@@ -116,7 +116,3 @@ def parse_llm_config(raw: Dict[str, Any]) -> LLMConfig:
 
 def load_llm_config(config_dir: Path = CONFIG_DIR) -> LLMConfig:
     return parse_llm_config(load_yaml("llm", config_dir))
-
-
-def load_limits(config_dir: Path = CONFIG_DIR) -> Dict[str, Any]:
-    return load_yaml("limits", config_dir)

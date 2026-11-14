@@ -11,6 +11,7 @@ from ops.config import LLMConfig, StageModel
 STAGE_GROUP = {
     "ontology": "setup",
     "graph": "setup",          # Zep extracts the graph itself; only MiroFish's own calls are routed
+    "agents": "setup",         # entity count check; no LLM calls expected
     "simulation": "setup",
     "prepare": "setup",        # personas and simulation config
     "schedule": "setup",

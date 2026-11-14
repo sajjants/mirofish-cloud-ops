@@ -130,3 +130,161 @@ New dependencies for the wrapper (spec-mandated): `psutil` and `keyring`, plus `
 - `doctor` tests every configured model. `plan` and the meter price each stage with its own model.
 
 **Key handling that follows from the relay:** MiroFish sends its requests to the relay with a random per-session token in place of a key. The relay checks that token and swaps in the real Gemini key, so the Gemini key is never written to `mirofish/.env`. The token also stops other local programs from spending through the relay. The Zep key still has to be in `mirofish/.env`, because upstream's Zep SDK connects directly.
+
+## 9. Phase 3 design: spend metering, kill switch, plan and pilot (for review)
+
+Nothing in this section is built yet. Facts marked *checked* were read from the pinned upstream commit or the library versions it installs.
+
+### 9.1 The pieces
+
+- **Relay** (`ops/relay.py`): the only LLM endpoint MiroFish knows. It listens on 127.0.0.1, meters, routes and forwards to Gemini using `ops/provider.py` (Phase 2).
+- **Ledger:** `ops/state/batches/<batch>/ledger.jsonl` (one line per call) and `budget.json` (running totals). Both are owner-only and git-ignored, and they never contain prompt or response text.
+- **Commands:** `plan`, `pilot` and `run`. They drive MiroFish through its REST API, the same way the local repo's `run_batch.py` does.
+
+### 9.2 What the relay does with each request, in order
+
+1. **Checks the session token.** If it is wrong, the relay answers 401.
+2. **Refuses streaming requests**, because token usage cannot be metered reliably on a stream. *Checked:* upstream's backend and simulation scripts never set `stream=True`.
+3. **Leak gate 2 (D4).** The request text is scanned against `sensitive_terms.txt`. On a match, the call is refused and the run is stopped. The ledger records which term entries matched (by line number), never the text.
+4. **Checks there is an active run.** Calls arriving with no active run (for example, from clicking in MiroFish's web UI) are refused with 409. Every paid call then belongs to a run you confirmed (C3).
+5. **Budget admission** (§9.4).
+6. **Routes by stage:** substitutes the stage group's model and `reasoning_effort` (D1 revised).
+7. **Forwards** with retries and the concurrency and requests-per-minute caps (Phase 2 code).
+8. **Meters** tokens and price (§9.3) and appends a ledger line.
+9. **Checks thresholds:** a warning at 90%, the kill switch at 100%.
+10. **Returns Gemini's response unchanged.** When the relay's own retries are used up, or it refuses a call, it adds `x-should-retry: false`. *Checked:* the OpenAI SDK upstream installs (1.109.1) honours that header. Without it, the SDK retries 408, 409, 429 and 5xx up to 2 more times on top of the relay's retries.
+
+Each ledger line holds: time, batch, run, stage, stage group, model, effort, HTTP status, outcome (ok, refusal, empty or error), attempts, latency, token counts (prompt, completion, reasoning and total), cost, whether JSON mode or tools were requested, whether the JSON parsed, and whether tool arguments parsed.
+
+### 9.3 Pricing
+
+- **Price file.** `prices.yaml` lists each model's `input_per_million` and `output_per_million`. It may also give an optional long-context tier (`threshold_prompt_tokens` with its own two prices). It must also give `currency`, `source_url` and `checked_on`. `plan`, `pilot` and `run` refuse to start if any configured model has no price.
+- **Billable output** is `total_tokens − prompt_tokens` when the response reports a total, and `completion_tokens + reasoning_tokens` otherwise. This counts thinking tokens whether or not Gemini includes them in `completion_tokens`. I am not asserting how Google bills thinking: the pilot report shows the thinking share so you can check it against the pricing page.
+- **Cached-input discounts are ignored**, so estimates err high.
+- **A response with no usage block** is priced at a worst case (prompt characters ÷ 3 as input tokens, plus `max_tokens` or 8,192 output tokens) and flagged. `doctor` already fails if usage is missing.
+
+### 9.4 Limits and the kill switch
+
+The budget belongs to the **batch** and persists across resumes. Raising a limit in `limits.yaml` lets a stopped batch continue (C1).
+
+| Limit | Counted by | At 90% | At 100% |
+|---|---|---|---|
+| `max_spend` | Relay, from priced tokens | Warning printed and logged | Kill switch |
+| `max_llm_calls` | Relay; requests from MiroFish (retry attempts are recorded separately) | Warning | Kill switch |
+| `wall_clock_minutes` | `run`; active time only (time while stopped does not count) | Warning | Kill switch |
+| `max_rounds` (≤ 40) | Config validation and `plan`; passed to upstream as `max_rounds` | n/a | Never exceeded, so no runtime trip |
+
+**Admission before every call.** The relay refuses a call if this sum would pass `max_spend`:
+- the spend so far;
+- the reservations of calls already in flight;
+- this call's reservation (prompt characters ÷ 3 × input price, plus `max_tokens` or `provider.reserve_output_tokens` (default 4,096) × output price).
+
+The worst overshoot is therefore one reservation per concurrent call (`max_concurrency`, default 4).
+
+**Admission before every stage.** Before starting a stage (most importantly rounds and report), `run` requires the remaining budget to cover that stage's **high** estimate. Otherwise it stops at the stage boundary, wasting nothing, and says how much more budget the stage needs. This keeps mid-stage trips rare.
+
+**What the kill switch does:**
+1. The relay answers every further call with HTTP 402 `budget_exhausted` (with `x-should-retry: false`).
+2. `run` notices within one poll interval.
+3. If the rounds stage is running, it calls upstream's `/api/simulation/stop`.
+4. It marks the stage `interrupted` with the reason, saves the run manifest and batch state, and exits with a message saying how to resume.
+
+**What "resumable" means, honestly:**
+- Completed stages are never repeated.
+- An interrupted stage starts again from its beginning. For the rounds stage, that means round 0. *Checked:* upstream cannot continue a stopped simulation. Its only restart is `start` with `force`, which discards the attempt; the only `start_round` parameter is on a read-only timeline endpoint.
+- The spend of the discarded attempt is recorded in the manifest as wasted.
+
+### 9.5 Stage signalling
+
+- Before each stage, `run` tells the relay the batch, run and stage through a control endpoint. The control endpoint uses a second random token, kept in an owner-only state file.
+- The relay attributes ledger lines to that stage and routes the request by the stage's group.
+- As in the local repo, only one batch runs at a time (a lock file).
+
+### 9.6 `plan`: low and high estimates
+
+**Before a pilot** the estimates come from `limits.yaml` `estimates` (calls per stage, plus tokens per call at a low and a high value). They are labelled "unmeasured".
+
+**After a pilot**, each stage group (priced with its own model) gets two estimates:
+- **Low:** the pilot's measured rates (calls and tokens per stage, per round and per agent turn), scaled to the planned rounds and agent count. Expected agent turns come from upstream's activity schedule, as in the local repo.
+- **High:** the low estimate with three adjustments:
+  - the pilot's measured growth in prompt tokens per call across rounds, extrapolated to the planned round count;
+  - agents at `caps.max_agents` instead of the pilot's count;
+  - the result multiplied by `estimates.high_factor` (default 1.5) (C4).
+
+The **high** estimate is checked against `max_spend`, `max_llm_calls` and `wall_clock_minutes`. Cuts are made in this order:
+1. Rounds per run, down to `rounds.real_min`.
+2. Runs per question, down to 1.
+
+Every cut is printed with its reason. If even one minimum run per question does not fit, `plan` stops and says by how much. The output shows a per-stage breakdown (model, calls, tokens, low and high spend) and the Zep usage estimate (Phase 4).
+
+### 9.7 The pilot
+
+**Shape:**
+- One run: the first question, variant v0.
+- `rounds.pilot` rounds (10).
+- At most `pilot.max_agents` agents (12).
+- Its own spend ceiling, `pilot.max_spend`. This is counted inside the batch budget (C6).
+
+**Agent cap, enforced before any persona is generated:**
+- After the graph is built, `pilot` counts entities by type with `GET /api/simulation/entities/<graph_id>?enrich=false`. *Checked:* this endpoint reads from Zep and makes no LLM call.
+- If there are more than 12, it stops and lists the counts per type. You then choose entity types (`--entity-types`), which upstream's `prepare` accepts as a filter.
+- A single type with more than 12 entities cannot be capped without trimming the seed, and the message says so (C5).
+- Real runs get the same check against `caps.max_agents`. The local repo only warned, and only after the money was spent.
+
+**Before it starts:**
+- It prints the typed confirmation (D5): hosts, data classes, and the pilot's low and high spend.
+- Then it starts the relay stage-by-stage as above.
+
+**Pilot report:**
+- **Per stage group and model:**
+  - calls and tokens (input, output, thinking);
+  - spend;
+  - latency (median and 95th percentile);
+  - retries, 429s and 5xx responses;
+  - refusals, empty answers and failed calls, with their rates;
+  - JSON failures, missing tool calls and truncated answers.
+- **Overall:**
+  - agents and rounds completed;
+  - the Zep estimate;
+  - the path to `report.md`, so you can judge report quality (the original D1 question);
+  - the real-run plan with low and high estimates and any cuts.
+
+**Pilot gates (C6).** `run` refuses to start if any of these hold:
+- failure rate above `pilot_gates.max_failure_rate` (proposed 5%);
+- refusal rate above `max_refusal_rate` (proposed 2%);
+- structured-output failure rate above `max_structured_failure_rate` (proposed 10%);
+- fewer rounds completed than planned.
+
+These are settings, not safety rails: you can change them in `limits.yaml`. The leak gate stays unbypassable.
+
+`run` then asks for its own typed confirmation of the plan.
+
+### 9.8 Added to each run's manifest
+
+- Spend per stage and in total.
+- Tokens and calls.
+- The model and effort used for each stage group.
+- The `prices.yaml` hash and its `checked_on` date.
+- Wasted spend from interrupted attempts.
+- Any 90% warnings and kill-switch trips, with reasons.
+
+### 9.9 Tests (fakes only)
+
+These use the fake provider from Phase 2 plus a fake MiroFish API. They cover:
+- **Relay:** wrong token, streaming refused, leak gate, no active run, admission with calls in flight, the 90% warning, the 100% trip, `x-should-retry` on refusals, routing per stage, no content in the ledger, pricing from total versus completion tokens, and worst-case pricing without usage.
+- **`plan`:** cut order and the infeasible case.
+- **`pilot`:** the agent-cap check against a fake entities endpoint.
+- **`run`:** a trip calls stop and marks the stage interrupted; resume restarts only that stage; the wall-clock trip.
+
+### 9.10 Decisions for your review
+
+| # | Decision | Recommendation |
+|---|---|---|
+| C1 | Budget scope | **Per batch, persisted across resumes.** Raising a limit continues the batch; it never silently resets. |
+| C2 | Hitting 100% mid-stage | **402 from the relay, then a clean stop.** Mid-rounds trips restart the rounds stage on resume (an upstream limit), so stage admission checks are used to make that rare. |
+| C3 | LLM calls with no active run (for example from the web UI) | **Refused.** Every paid call belongs to a confirmed run. |
+| C4 | How "high" is computed | **Measured prompt growth, agents at the cap, × 1.5** (`estimates.high_factor`). |
+| C5 | Pilot finds more than 12 agents | **Stop and ask you to choose entity types**, rather than the wrapper picking which parts of your scenario to drop. |
+| C6 | Pilot spend ceiling and gates | **`pilot.max_spend` you set** (template value 1.00 in your currency). Gates at 5% failures, 2% refusals, 10% structured failures. |
+
+**Reviewed 2026-11-15: C1–C6 accepted as recommended.**

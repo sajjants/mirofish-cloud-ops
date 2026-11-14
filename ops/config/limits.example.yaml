@@ -1,23 +1,61 @@
 # Template for ops/config/limits.yaml (git-ignored). All values are placeholders to tune.
-# Spend is in the currency of ops/config/prices.yaml.
+# Spend is in the currency of ops/config/prices.yaml. Budgets belong to a batch and persist across
+# resumes: raising a value here lets a stopped batch continue; nothing resets silently.
 
 caps:
-  max_spend: 5.00           # hard stop for a batch; warning at 90%, clean stop and checkpoint at 100%
-  max_llm_calls: 6000       # LLM calls across a batch (counted by the local meter)
-  wall_clock_minutes: 600   # total time for a batch
-  max_agents: 30            # warn above this; upstream turns every typed graph entity into an agent
+  max_spend: 5.00           # whole batch, pilot included; warning at 90%, clean stop at 100%
+  max_llm_calls: 6000       # requests MiroFish sends through the relay (retry attempts counted separately)
+  wall_clock_minutes: 600   # active time of the batch (time while stopped does not count)
+  max_agents: 30            # checked before personas are generated; every typed graph entity becomes an agent
 
 rounds:
-  pilot: 10                 # the pilot always runs first (12 agents or fewer recommended)
+  pilot: 10
   real_min: 20
   real_max: 30
-  max_rounds: 40            # absolute ceiling
+  max_rounds: 40            # absolute ceiling; cannot be set above 40
 
 runs:
   per_question: 2
   per_question_high_unknown: 3
   unknown_threshold: 2      # more UNKNOWN facts than this -> per_question_high_unknown runs
 
+pilot:
+  max_agents: 12
+  max_spend: 1.00           # ceiling for the pilot run, counted inside caps.max_spend
+
+pilot_gates:                # `run` refuses to start when the pilot exceeds any of these
+  max_failure_rate: 0.05
+  max_refusal_rate: 0.02
+  max_structured_failure_rate: 0.10
+
 provider:
   max_concurrency: 4        # simultaneous requests to the LLM provider
   requests_per_minute: 60   # client-side cap; set at or below your key's quota
+  reserve_output_tokens: 4096   # output tokens reserved per call when MiroFish sets no max_tokens
+
+simulation:
+  platform: parallel        # the only mode whose end of rounds upstream reports
+  clock_start_hour: 8       # simulated day starts at this hour (upstream starts at 00:00)
+
+# Used by `plan` before a pilot exists (labelled "unmeasured"), and for the high-estimate factor.
+estimates:
+  high_factor: 1.5
+  agents: 20                # assumed agent count before a pilot has counted the graph
+  agent_turns_per_round: 8  # both platforms together
+  setup:                    # ontology, personas, simulation config
+    fixed_calls: 10
+    calls_per_agent: 2
+    prompt_tokens_per_call: 3000
+    output_tokens_per_call: 1500
+  simulation:               # agent turns
+    calls_per_turn: 1.2
+    prompt_tokens_per_call: 2500
+    output_tokens_per_call: 300
+  report:                   # report agent and interviews
+    fixed_calls: 40
+    prompt_tokens_per_call: 6000
+    output_tokens_per_call: 1500
+  seconds:
+    fixed_per_run: 600
+    per_agent: 10
+    per_turn: 3

@@ -15,7 +15,8 @@ from typing import Callable, Dict, List, Optional, TextIO
 from urllib.parse import urlsplit
 
 from ops import paths
-from ops.config import ConfigError, LLMConfig, StageModel, load_limits, load_llm_config
+from ops.config import ConfigError, LLMConfig, StageModel, load_llm_config
+from ops.limits import load_limits
 from ops.json_checks import (JSON_TESTS, SYSTEM_PROMPT, TOOL_TEST_PROMPT, TOOL_TEST_TOOLS,
                              check_json_answer, check_tool_call)
 from ops.keys import Key, get_key
@@ -44,8 +45,8 @@ class Report:
 
 
 def default_client(config: LLMConfig, key: Key, stats: Stats) -> ProviderClient:
-    provider = load_limits().get("provider") or {}
-    limiter = RateLimiter(int(provider.get("max_concurrency", 4)), int(provider.get("requests_per_minute", 60)))
+    provider = load_limits()["provider"]
+    limiter = RateLimiter(provider["max_concurrency"], provider["requests_per_minute"])
     return ProviderClient(config.base_url, key.value, retry=config.retry, timeout=config.timeout_seconds,
                           limiter=limiter, stats=stats)
 

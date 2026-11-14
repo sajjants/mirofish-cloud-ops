@@ -238,6 +238,20 @@ def error_message(response: Response) -> str:
 
 
 @dataclass
+class Completion:
+    """One logical chat request: the final response plus what every attempt cost and how it went."""
+
+    response: Optional[Response]
+    body: Optional[Dict[str, Any]] = None
+    outcome: str = "error"          # ok | refusal | empty | error
+    finish_reason: str = ""
+    usages: List[Optional[Dict[str, int]]] = field(default_factory=list)   # one per HTTP 200 attempt
+    stats: Stats = field(default_factory=Stats)
+    seconds: float = 0.0
+    error: str = ""
+
+
+@dataclass
 class ChatResult:
     outcome: str                    # ok | refusal | empty | error
     status: int = 0
@@ -266,15 +280,52 @@ class ProviderClient:
     def _headers(self) -> Dict[str, str]:
         return {"Authorization": f"Bearer {self._key}", "Content-Type": "application/json"}
 
-    def _request(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Response:
+    def _request(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None,
+                 stats: Optional[Stats] = None) -> Response:
         body = json.dumps(payload).encode("utf-8") if payload is not None else None
         url = f"{self.base_url}/{path.lstrip('/')}"
         return send_with_retry(lambda: self._send(method, url, self._headers(), body, self.timeout),
-                               self.policy, self.stats, self.limiter, self._sleep)
+                               self.policy, stats or self.stats, self.limiter, self._sleep)
 
     def get_model(self, model: str) -> Response:
         """Zero-token check that the key is valid and the model exists."""
         return self._request("GET", f"models/{model}")
+
+    def complete(self, payload: Dict[str, Any]) -> Completion:
+        """Send a chat request as given; refusals and empty answers are retried once, then failed."""
+        call = Completion(response=None)
+        call.stats.add(requests=1)
+        started = time.monotonic()
+        try:
+            for _content_attempt in range(2):
+                response = self._request("POST", "chat/completions", payload, call.stats)
+                call.response, call.body, call.outcome, call.finish_reason = response, None, "error", ""
+                if response.status != 200:
+                    call.error = error_message(response)
+                    break
+                try:
+                    body = response.json()
+                    if not isinstance(body, dict):
+                        raise ValueError("not an object")
+                except (ValueError, UnicodeDecodeError):
+                    call.usages.append(None)
+                    call.error = "response is not a JSON object"
+                    break
+                call.body = body
+                call.usages.append(parse_usage(body))
+                call.outcome, call.finish_reason = classify_completion(body)
+                if call.outcome == "ok":
+                    break
+                call.stats.add(**{"refusals" if call.outcome == "refusal" else "empty": 1})
+            call.stats.add(**({"ok": 1} if call.outcome == "ok" else {"failed": 1}))
+        except ProviderError:
+            call.stats.add(failed=1)
+            raise
+        finally:
+            call.seconds = round(time.monotonic() - started, 3)
+            counters = call.stats.to_dict()
+            self.stats.add(**{k: v for k, v in counters.items() if not k.endswith("_rate")})
+        return call
 
     def chat(self, model: str, messages: List[Dict[str, Any]], *, json_mode: bool = False,
              tools: Optional[List[Dict[str, Any]]] = None, reasoning_effort: Optional[str] = None,
@@ -290,32 +341,12 @@ class ProviderClient:
             payload["max_tokens"] = max_tokens
         if temperature is not None:
             payload["temperature"] = temperature
-        self.stats.add(requests=1)
-        started = time.monotonic()
-        result = ChatResult(outcome="error")
-        for _content_attempt in range(2):
-            response = self._request("POST", "chat/completions", payload)
-            result = ChatResult(outcome="error", status=response.status, seconds=round(time.monotonic() - started, 3))
-            if response.status != 200:
-                result.error = error_message(response)
-                self.stats.add(failed=1)
-                return result
-            try:
-                body = response.json()
-            except (ValueError, UnicodeDecodeError):
-                result.error = "response is not JSON"
-                self.stats.add(failed=1)
-                return result
-            outcome, finish = classify_completion(body)
-            choice = (body.get("choices") or [{}])[0] or {}
-            message = choice.get("message") or {}
-            result.outcome, result.finish_reason = outcome, finish
+        call = self.complete(payload)
+        result = ChatResult(outcome=call.outcome, status=call.response.status if call.response else 0,
+                            finish_reason=call.finish_reason, seconds=call.seconds, error=call.error)
+        if call.body is not None:
+            message = ((call.body.get("choices") or [{}])[0] or {}).get("message") or {}
             result.content = str(message.get("content") or "")
             result.tool_calls = list(message.get("tool_calls") or [])
-            result.usage = parse_usage(body)
-            if outcome == "ok":
-                self.stats.add(ok=1)
-                return result
-            self.stats.add(**{"refusals" if outcome == "refusal" else "empty": 1})
-        self.stats.add(failed=1)
+            result.usage = call.usages[-1] if call.usages else None
         return result

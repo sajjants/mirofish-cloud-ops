@@ -22,6 +22,14 @@ def make_private_dir(path: Path) -> Path:
     return path
 
 
+def append_private_line(path: Path, line: str) -> None:
+    """Append one line to a file created with owner-only permissions."""
+    make_private_dir(path.parent)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as handle:
+        handle.write(line.rstrip("\n") + "\n")
+
+
 def write_private_text(path: Path, text: str) -> None:
     """Write a file atomically with owner-only permissions (0600 where the OS supports modes)."""
     make_private_dir(path.parent)

@@ -41,12 +41,42 @@ def _cmd_keys(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_batch(args: argparse.Namespace) -> int:
+    from ops.batch import run_command
+    entity_types = None
+    if getattr(args, "entity_types", None) is not None:
+        entity_types = [t.strip() for t in args.entity_types.split(",") if t.strip()]
+    return run_command(args.command, args.batch, replan=getattr(args, "replan", False), entity_types=entity_types)
+
+
+def _cmd_relay(args: argparse.Namespace) -> int:
+    from ops.relay import serve
+    return serve(args.port)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m ops", description="MiroFish cloud wrapper (Gemini + Zep Cloud)")
     commands = parser.add_subparsers(dest="command", required=True)
 
     doctor = commands.add_parser("doctor", help="check the Gemini key, models, JSON mode, tool calling and latency")
     doctor.set_defaults(func=_cmd_doctor)
+
+    for name, text in (("plan", "show the low and high estimate and the run plan for a batch (no network)"),
+                       ("pilot", "measured pilot run: 10 rounds, at most 12 agents, then stop for review"),
+                       ("run", "the planned real runs, after the pilot passed its gates (resumable)"),
+                       ("status", "spend, calls, time and run states for a batch (no network)")):
+        command = commands.add_parser(name, help=text)
+        command.add_argument("--batch", required=True)
+        if name in ("pilot", "run"):
+            command.add_argument("--entity-types", metavar="TYPE,TYPE",
+                                 help="only create agents for these graph entity types (to stay under the agent cap)")
+        if name == "run":
+            command.add_argument("--replan", action="store_true", help="re-plan instead of using the confirmed plan")
+        command.set_defaults(func=_cmd_batch)
+
+    relay = commands.add_parser("relay", help="run the metering relay in the foreground (normally started by start)")
+    relay.add_argument("--port", type=int, default=5011)
+    relay.set_defaults(func=_cmd_relay)
 
     keys = commands.add_parser("keys", help="store API keys in the OS keychain or show where they are found")
     key_actions = keys.add_subparsers(dest="action", required=True)

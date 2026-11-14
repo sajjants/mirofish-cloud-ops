@@ -1,16 +1,22 @@
 # Template for ops/config/prices.yaml (git-ignored).
-# Fill in per-million-token prices from the provider's CURRENT price page. These are placeholders,
-# not real prices; the meter refuses to compute spend while any value is null.
-# Keys must match the model names you set in LLM_MODEL_NAME / LLM_BOOST_MODEL_NAME.
+# Copy per-million-token prices from the provider's CURRENT price page. These are placeholders,
+# not real prices. plan, pilot and run refuse to start while a configured model has no price.
+# Model keys must match the model names in ops/config/llm.yaml.
+#
+# Output is billed on total_tokens - prompt_tokens when the response reports a total (this
+# includes thinking tokens whether or not they are inside completion_tokens), otherwise on
+# completion_tokens + reasoning_tokens. Cached-input discounts are ignored, so spend errs high.
 
 currency: USD
 source_url: ""          # the price page you copied these from
 checked_on: ""          # date you checked it (YYYY-MM-DD)
 
 models:
-  FAST_MODEL_NAME_HERE:
+  SET_ME:
     input_per_million: null
     output_per_million: null
-  STRONG_MODEL_NAME_HERE:
-    input_per_million: null
-    output_per_million: null
+    # Optional higher tier for long prompts, if the price page has one:
+    # long_context:
+    #   threshold_prompt_tokens: 200000
+    #   input_per_million: null
+    #   output_per_million: null
