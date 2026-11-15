@@ -1,0 +1,16 @@
+# Only ops/ (code, templates, patches) and .env.example go into the image; never keys, private config,
+# run data, mappings, logs, caches or the host's upstream checkout.
+*
+!ops/
+!.env.example
+ops/config/llm.yaml
+ops/config/limits.yaml
+ops/config/prices.yaml
+ops/config/zep_limits.yaml
+ops/config/sensitive_terms.txt
+ops/state/
+ops/runs/
+ops/logs/
+ops/mappings/
+ops/cache/
+**/__pycache__/

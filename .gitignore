@@ -52,6 +52,9 @@ build/
 dist/
 node_modules/
 
+# ----- Docker route: host folders mounted into the container (state, runs, inputs) -----
+docker-data/
+
 # ----- Caches and local tools -----
 .cache/
 ops/cache/

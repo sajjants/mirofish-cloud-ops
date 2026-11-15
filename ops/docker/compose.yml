@@ -1,0 +1,29 @@
+# The Docker route (UNTESTED; see README). From the repository root:
+#   export GEMINI_API_KEY=... ZEP_API_KEY=...        # or read them from your password manager
+#   docker compose -f ops/docker/compose.yml up -d --build
+#   docker compose -f ops/docker/compose.yml exec mirofish .venv/bin/python -m ops privacy_report --confirm
+#   docker compose -f ops/docker/compose.yml exec mirofish .venv/bin/python -m ops prepare --batch B1 \
+#       --seed /app/inputs/seed.md --questions /app/inputs/questions.md --terms /app/inputs/terms.txt
+#   docker compose -f ops/docker/compose.yml exec mirofish .venv/bin/python -m ops pilot --batch B1
+# Ports are published on the host's loopback only. Keys are passed by name from your shell, never
+# written to a file, but anyone who can run `docker inspect` on this machine can read them.
+services:
+  mirofish:
+    build:
+      context: ../..
+      dockerfile: ops/docker/Dockerfile
+    environment:
+      - GEMINI_API_KEY
+      - ZEP_API_KEY
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:5001:5001"
+    volumes:
+      - ../config:/app/ops/config:ro
+      - ../../docker-data/inputs:/app/inputs:ro
+      - ../../docker-data/state:/app/ops/state
+      - ../../docker-data/runs:/app/ops/runs
+      - ../../docker-data/logs:/app/ops/logs
+      - ../../docker-data/mappings:/app/ops/mappings
+      - ../../docker-data/uploads:/app/mirofish/backend/uploads
+    stop_grace_period: 30s

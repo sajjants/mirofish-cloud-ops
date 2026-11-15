@@ -1,0 +1,6 @@
+# The only non-loopback hosts the stack may reach, per process group (`python -m ops netcheck`).
+# Format: <group> <hostname>. Groups: relay (the metering relay, which holds the Gemini key),
+# mirofish (the backend and its simulation subprocesses, which hold the Zep key), frontend (none).
+# start refuses to run if llm.yaml's provider host is not listed for the relay.
+relay     generativelanguage.googleapis.com
+mirofish  api.getzep.com

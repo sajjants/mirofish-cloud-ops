@@ -289,3 +289,12 @@ These use the fake provider from Phase 2 plus a fake MiroFish API. They cover:
 | C6 | Pilot spend ceiling and gates | **`pilot.max_spend` you set** (template value 1.00 in your currency). Gates at 5% failures, 2% refusals, 10% structured failures. |
 
 **Reviewed 2026-11-15: C1–C6 accepted as recommended.**
+
+## 10. Phase 5 notes (as built)
+
+- **Keys never on disk.** `start` passes the Zep key to the backend in its process environment only (upstream's `Config.validate()` exits without it, so a healthy backend proves it arrived) and refuses to run if `mirofish/.env` contains `ZEP_API_KEY`. MiroFish's `LLM_API_KEY` is the relay's session token, rotated on every `start`. Child processes get a scrubbed environment (no proxies, CA-bundle overrides, tracing exporters, or other provider keys).
+- **netcheck attribution (the open item from §5).** Each audit record carries pid and thread id; a connect to an IP is attributed to the hostname most recently looked up in the same thread, which is how HTTP clients connect. Each process group has its own allowlist (`relay` → Gemini, `mirofish` → Zep, `frontend` → nothing). The `psutil` sampler covers sockets the audit hook cannot see (native code, Node) and fails on any it cannot explain. No evidence counts as a failure.
+- **The wrapper's own LLM calls** (variants, factguard, compare) go through the relay as stages of the pseudo-run `<batch>_tools`, so the relay stays the only writer of the batch budget and netcheck sees them like any other call.
+- **Money** is sent as 1-2-5 ranges; a range several seed amounts share is not reversed.
+- **Cloud-synced folders.** `start` and `prepare` refuse to run when the private directories are inside a folder a sync client uploads (path markers, Google Drive's `.tmp.driveupload` staging folder in any parent, or files with a second hard link). Found on the development machine: Google Drive for desktop backs up `~/Documents` and hard-links every new file into `~/Documents/.tmp.driveupload/` while uploading it.
+- **Docker** (`ops/docker/`): one container runs the same `start --foreground`; ports are published on the host's 127.0.0.1 only. Written without a Docker engine available, so it is untested.

@@ -2,17 +2,16 @@ import io
 import json
 import os
 import unittest
-from pathlib import Path
 
-from ops import paths
+from ops import paths, privacy
 from ops.batch import Batch, BatchError, BatchLock, RelayControl
 from ops.budget import Budget
 from ops.confirm import NotConfirmed, confirm
 from ops.mirofish_api import StopRun
 from ops.tests.fake_provider import FakeProvider, completion
 from ops.tests.fake_zep import FAKE_ZEP_KEY
-from ops.tests.helpers import GRAPH_ID, SESSION, TERMS, FakeMiroFish, RelayFixture, TempState, limits, llm_config, \
-    prices
+from ops.tests.helpers import GRAPH_ID, SESSION, TERMS, FakeMiroFish, RelayFixture, TempState, \
+    confirm_privacy, limits, llm_config, prices
 from ops.zep import ZepResources
 
 TINY_ESTIMATES = {"estimates__setup": {"fixed_calls": 1, "calls_per_agent": 1, "prompt_tokens_per_call": 100,
@@ -35,8 +34,8 @@ class BatchTestCase(unittest.TestCase):
         self.sims = root / "simulations"
         self.mirofish = FakeMiroFish(self.relay.url, self.sims)
         self.env = root / "mirofish.env"
-        self.env.write_text(f"LLM_BASE_URL={self.relay.url}/v1\nLLM_API_KEY={SESSION}\nFLASK_PORT=5001\n"
-                            f"ZEP_API_KEY={FAKE_ZEP_KEY}\n")
+        self.env.write_text(f"LLM_BASE_URL={self.relay.url}/v1\nLLM_API_KEY={SESSION}\nFLASK_PORT=5001\n")
+        confirm_privacy()
         self.batch_dir = paths.RUNS_DIR / "b1"
         (self.batch_dir / "inputs").mkdir(parents=True)
         (self.batch_dir / "inputs" / "seed.md").write_text("VERIFIED: Person A runs Org B.\n")
@@ -144,15 +143,24 @@ class PreflightTests(BatchTestCase):
             self.make_batch().pilot()
         self.assertIn("bypass metering", str(caught.exception))
 
-    def test_mirofish_needs_the_zep_key_and_no_redirected_zep_url(self):
+    def test_zep_key_stays_out_of_the_env_file_and_no_redirected_zep_url(self):
         base = f"LLM_BASE_URL={self.relay.url}/v1\nLLM_API_KEY={SESSION}\n"
-        for env, expected in ((base, "no ZEP_API_KEY"),
-                              (base + f"ZEP_API_KEY={FAKE_ZEP_KEY}\nZEP_API_URL=https://example.invalid\n",
-                               "ZEP_API_URL")):
+        for env, expected in ((base + f"ZEP_API_KEY={FAKE_ZEP_KEY}\n", "contains ZEP_API_KEY"),
+                              (base + "ZEP_API_URL=https://example.invalid\n", "ZEP_API_URL")):
             self.env.write_text(env)
             with self.assertRaises(BatchError) as caught:
                 self.make_batch().pilot()
             self.assertIn(expected, str(caught.exception))
+            self.assertNotIn(FAKE_ZEP_KEY, str(caught.exception))
+        self.assertEqual(self.provider.requests, [])
+
+    def test_nothing_is_sent_until_the_privacy_checklist_is_confirmed(self):
+        privacy.checklist_file().unlink()
+        with self.assertRaises(BatchError) as caught:
+            self.make_batch().pilot()
+        self.assertIn("privacy_report --confirm", str(caught.exception))
+        self.assertEqual(self.provider.requests, [])
+        self.assertEqual(self.mirofish.starts, [])
 
     def test_wrong_confirmation_sends_nothing(self):
         with self.assertRaises(NotConfirmed):

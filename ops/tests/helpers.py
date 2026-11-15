@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 import threading
@@ -57,10 +58,18 @@ class TempState:
         self.tmp = tempfile.TemporaryDirectory()
         test.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        for name, value in (("STATE_DIR", self.root / "state"), ("RUNS_DIR", self.root / "runs")):
+        for name, value in (("STATE_DIR", self.root / "state"), ("RUNS_DIR", self.root / "runs"),
+                            ("MAPPINGS_DIR", self.root / "mappings"), ("LOGS_DIR", self.root / "logs"),
+                            ("UPSTREAM_DIR", self.root / "mirofish")):
             patch = mock.patch.object(paths, name, value)
             patch.start()
             test.addCleanup(patch.stop)
+
+
+def confirm_privacy() -> None:
+    """Record the privacy checklist in the (temporary) state dir, as `privacy_report --confirm` would."""
+    from ops import privacy
+    privacy.confirm_checklist(ask=lambda _prompt: "yes", out=io.StringIO(), interactive=True)
 
 
 class RelayFixture:

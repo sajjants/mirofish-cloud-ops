@@ -54,6 +54,13 @@ def load_relay_state(port: Optional[int] = None) -> Dict[str, Any]:
     return state
 
 
+def rotate_relay_state(port: int) -> Dict[str, Any]:
+    """New session and control tokens for a fresh start; the old ones stop working with the old relay."""
+    state = {"port": port, "session_token": secrets.token_urlsafe(32), "control_token": secrets.token_urlsafe(32)}
+    paths.write_private_text(paths.STATE_DIR / STATE_FILE, json.dumps(state, indent=2) + "\n")
+    return state
+
+
 @dataclass
 class ActiveRun:
     batch_id: str

@@ -26,4 +26,8 @@ git -C mirofish rev-parse HEAD    # must print the commit above
 
 ## Patches
 
-None yet. Planned (see `ops/CLOUD_PLAN.md` §4): the local repo's `0002-local-hardening.patch` (CORS and Host allowlists, optional request-body logging, Google Fonts removal), which applies cleanly to this commit on its own.
+Applied in file-name order by `python -m ops bootstrap` (idempotent; a patch that neither applies nor reverses cleanly stops bootstrap before anything else changes). `start` refuses to run unless every patch is applied.
+
+| Patch | sha256 | What it changes |
+|---|---|---|
+| `0001-server-hardening.patch` | `d6c9afa78f486f74e53ef0e1e546a4a95e188d35e9cccd7507a25f2fa6a4e7b3` | `backend/app/__init__.py`: CORS and Host-header allowlists (`MIROFISH_CORS_ORIGINS`, `MIROFISH_ALLOWED_HOSTS`), request bodies not logged unless `MIROFISH_LOG_REQUEST_BODIES=true`. `frontend/index.html`: Google Fonts links removed, so the browser loads nothing from Google. `backend/tests/test_local_hardening.py`: tests for the above. Copied from the local repo's `0002-local-hardening.patch` (see `PROVENANCE.md`). |

@@ -7,8 +7,12 @@ from typing import Any, Dict
 
 from ops.config import LLMConfig, StageModel
 
-# Stage names are those of the run pipeline (run manifest stages) plus "interview".
+# Stage names are those of the run pipeline (run manifest stages) plus "interview", and the
+# wrapper's own analysis tools (ops/wrapper_llm.py), which are metered as run "<batch>_tools".
 STAGE_GROUP = {
+    "variants": "setup",
+    "factguard": "report",
+    "compare": "report",
     "ontology": "setup",
     "graph": "setup",          # Zep extracts the graph itself; only MiroFish's own calls are routed
     "agents": "setup",         # entity count check; no LLM calls expected

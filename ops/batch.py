@@ -26,7 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, TextIO
 
 import psutil
 
-from ops import envfile, leakgate, paths, zep_usage
+from ops import envfile, leakgate, paths, privacy, zep_usage
 from ops.budget import BATCH_ID, Budget
 from ops.config import LLMConfig, load_llm_config
 from ops.confirm import NotConfirmed, confirm
@@ -425,11 +425,14 @@ class Batch:
         boosted = [k for k in ("LLM_BOOST_API_KEY", "LLM_BOOST_BASE_URL", "LLM_BOOST_MODEL_NAME") if env.get(k)]
         if boosted:
             raise BatchError(f"mirofish/.env sets {', '.join(boosted)}; boost calls would bypass the relay (D2)")
-        if not env.get("ZEP_API_KEY"):
-            raise BatchError("mirofish/.env has no ZEP_API_KEY; MiroFish needs it for Zep Cloud "
-                             "(`python -m ops start` writes it from the environment or the OS keychain)")
+        if "ZEP_API_KEY" in env:
+            raise BatchError("mirofish/.env contains ZEP_API_KEY; delete that line and restart with "
+                             "`python -m ops start` (the key is passed in the process environment only)")
         if env.get("ZEP_API_URL"):
             raise BatchError("mirofish/.env sets ZEP_API_URL; remove it (only Zep Cloud is allowed)")
+        ok, message = privacy.checklist_status()
+        if not ok:
+            raise BatchError(message)
 
     # ----- one run
     def execute(self, spec: Dict[str, Any], kind: str) -> Dict[str, Any]:
