@@ -51,3 +51,5 @@ Local-only parts: Ollama setup (`ollama_serve.sh`, `build_model.sh`, `.tools/oll
 `ops/zep.py`, `ops/zep_usage.py`, `ops/purge.py` (Zep part; the local repo's `ops/scripts/purge.py` deleted from the local memory store, which this profile does not have), `ops/config/zep_limits.example.yaml`, `ops/tests/fake_zep.py`, `ops/tests/test_zep.py` (Phase 4).
 
 `ops/bootstrap.py`, `ops/upstream.py`, `ops/stack.py`, `ops/privacy.py`, `ops/wrapper_llm.py`, `ops/config/allowed_hosts.txt`, `.env.example` (rewritten as the template for `mirofish/.env`), `ops/docker/`, `.dockerignore`, the CLI commands added to `ops/cli.py`, and `ops/tests/test_netcheck_stack.py`, `test_privacy_llm.py`, `test_tools_purge.py` (Phase 5). The local repo's bash scripts (`bootstrap.sh`, `start.sh`, `stop.sh`, `netcheck.sh`, `purge.sh`, `apply_patches.sh`, `cache_assets.sh`) were not copied; their jobs are done in Python here.
+
+`ops/SMOKE_TEST.md`, `.gitattributes`, `ops/tests/fixtures/synthetic_terms.txt` and `synthetic_questions.md` (written for the fictional seed above) (Phase 6).

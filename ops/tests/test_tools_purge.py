@@ -13,18 +13,6 @@ from ops.tests.fake_zep import FAKE_ZEP_KEY, FakeZep
 from ops.tests.helpers import TERMS, TempState
 
 FIXTURES = Path(__file__).parent / "fixtures"
-TERMS_FILE = """\
-person: Elena Duarte | Duarte
-person: Tomas Reyes | Reyes
-org: Riverton City Council
-org: Riverton Transit Workers Union
-org: Harbor Street Merchants Association
-org: Greenway Coalition
-org: Riverton Daily
-place: Riverton
-place: Harbor Street
-place: Northgate
-"""
 RUN = "b1_Q1_v0_r1"
 G1 = "mirofish_0123456789abcdef"
 
@@ -33,10 +21,8 @@ class PreparedBatch(unittest.TestCase):
     def setUp(self):
         self.state = TempState(self)
         self.root = self.state.root
-        self.terms = self.root / "terms.txt"
-        self.terms.write_text(TERMS_FILE)
-        self.questions = self.root / "questions.md"
-        self.questions.write_text("## Q1: Reaction\n" + (FIXTURES / "synthetic_requirement.txt").read_text())
+        self.terms = FIXTURES / "synthetic_terms.txt"
+        self.questions = FIXTURES / "synthetic_questions.md"
         self.seed = FIXTURES / "synthetic_seed.md"
 
     def prepare(self, seed=None):
@@ -205,17 +191,29 @@ class LocalPurgeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             local_purge.plan("b1", include_logs=False)
 
-    def test_shred_does_not_follow_symlinks_or_zero_other_hard_links(self):
+    def test_shred_does_not_zero_other_hard_links(self):
+        outside = self.write(self.state.root / "outside.txt", "keep me")
+        tree = self.state.root / "tree"
+        self.write(tree / "file.txt", "secret")
+        os.link(outside, tree / "hard.txt")
+        warnings = []
+        self.assertEqual(local_purge.shred_tree(tree, warnings), 2)
+        self.assertFalse(tree.exists())
+        self.assertEqual(outside.read_text(), "keep me")
+        self.assertEqual(len(warnings), 1)
+
+    @unittest.skipIf(os.name == "nt", "creating symlinks needs extra rights on Windows")
+    def test_shred_does_not_follow_symlinks(self):
         outside = self.write(self.state.root / "outside.txt", "keep me")
         tree = self.state.root / "tree"
         self.write(tree / "file.txt", "secret")
         os.symlink(outside, tree / "link.txt")
-        os.link(outside, tree / "hard.txt")
-        warnings = []
-        self.assertEqual(local_purge.shred_tree(tree, warnings), 3)
+        (tree / "sub").mkdir()
+        os.symlink(self.state.root, tree / "sub" / "dirlink")
+        self.assertEqual(local_purge.shred_tree(tree, []), 2)
         self.assertFalse(tree.exists())
         self.assertEqual(outside.read_text(), "keep me")
-        self.assertEqual(len(warnings), 1)
+        self.assertTrue(self.state.root.is_dir())
 
     def purge(self, client, **kwargs):
         out = io.StringIO()

@@ -46,7 +46,8 @@ def ensure_checkout(upstream: Optional[Path] = None, commit: Optional[str] = Non
     commit = commit or pinned_commit()
     if not upstream.exists():
         log(f"cloning {UPSTREAM_URL} into {upstream}")
-        git(["clone", "--quiet", "--no-checkout", UPSTREAM_URL, str(upstream)])
+        # LF as committed upstream, so ops/patches apply on Windows too (core.autocrlf would convert).
+        git(["clone", "--quiet", "--no-checkout", "--config", "core.autocrlf=false", UPSTREAM_URL, str(upstream)])
         git(["checkout", "--quiet", "--detach", commit], cwd=upstream)
     elif not (upstream / ".git").exists():
         raise UpstreamError(f"{upstream} exists but is not a git checkout; move it aside and run bootstrap again")

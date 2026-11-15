@@ -207,14 +207,15 @@ class UpstreamTests(unittest.TestCase):
         self.repo = paths.UPSTREAM_DIR
         self.repo.mkdir()
         git("init", "-q", cwd=self.repo)
-        (self.repo / "a.txt").write_text("one\n")
+        git("config", "core.autocrlf", "false", cwd=self.repo)
+        (self.repo / "a.txt").write_bytes(b"one\n")
         git("add", "a.txt", cwd=self.repo)
         git("commit", "-q", "-m", "c1", cwd=self.repo)
         self.commit = upstream.head()
         self.patches = self.state.root / "patches"
         self.patches.mkdir()
-        (self.patches / "0001-change.patch").write_text(
-            "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+two\n")
+        (self.patches / "0001-change.patch").write_bytes(
+            b"--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+two\n")
         patch = mock.patch.object(upstream, "PATCHES_DIR", self.patches)
         patch.start()
         self.addCleanup(patch.stop)
@@ -229,9 +230,9 @@ class UpstreamTests(unittest.TestCase):
         self.assertEqual(upstream.patch_state(self.patches / "0001-change.patch"), "pending")
         self.assertTrue(upstream.apply_patches("apply", log=log.append))
         self.assertTrue(upstream.apply_patches("apply", log=log.append))
-        self.assertEqual((self.repo / "a.txt").read_text(), "two\n")
+        self.assertEqual((self.repo / "a.txt").read_bytes(), b"two\n")
         self.assertTrue(upstream.apply_patches("revert", log=log.append))
-        self.assertEqual((self.repo / "a.txt").read_text(), "one\n")
+        self.assertEqual((self.repo / "a.txt").read_bytes(), b"one\n")
         self.assertEqual([line.split()[0] for line in log], ["APPLIED", "APPLIED", "REVERTED"])
 
     def test_a_conflicting_checkout_is_reported(self):

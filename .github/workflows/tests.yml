@@ -1,0 +1,36 @@
+# Unit tests on every supported OS and Python. Fakes only: the tests start local stand-ins for Gemini,
+# Zep and MiroFish on 127.0.0.1; no repository secrets or real keys are used, and the only network
+# access is installing the hash-pinned dependencies. No event data (titles, branch names, messages)
+# is used anywhere in this workflow.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      # Never touch a runner's keychain; key lookups fall back to "not set".
+      PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install locked dependencies (hash-checked)
+        run: python -m pip install --disable-pip-version-check --require-hashes -r ops/requirements.lock
+      - name: Unit tests
+        run: python -W ignore::SyntaxWarning -m unittest discover -s ops/tests -t . -v

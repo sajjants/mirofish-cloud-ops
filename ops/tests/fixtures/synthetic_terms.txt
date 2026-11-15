@@ -1,0 +1,11 @@
+# Names to pseudonymise in synthetic_seed.md (fictional). Format: see ops/pseudonymize.py.
+person: Elena Duarte | Duarte
+person: Tomas Reyes | Reyes
+org: Riverton City Council
+org: Riverton Transit Workers Union
+org: Harbor Street Merchants Association
+org: Greenway Coalition
+org: Riverton Daily
+place: Riverton
+place: Harbor Street
+place: Northgate

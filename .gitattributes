@@ -1,0 +1,5 @@
+# Patches must reach `git apply` byte for byte, and shell and Docker files must keep LF line
+# endings, also on Windows checkouts where core.autocrlf converts text files to CRLF.
+*.patch -text
+.githooks/* text eol=lf
+ops/docker/* text eol=lf
