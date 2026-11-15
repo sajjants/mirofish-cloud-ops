@@ -188,7 +188,7 @@ python -m ops plan --batch b1               # low and high estimates of spend, c
 python -m ops pilot --batch b1              # 10 rounds, at most 12 agents, then it stops for review
 ```
 
-Review and edit `ops/runs/b1/alternatives.json` before sampling if you like. The pilot measures real token use per stage and replaces the estimates in the plan; `run` refuses to start if the pilot exceeded the failure, refusal or malformed-output gates. If the graph would create more agents than the cap, the pilot stops and asks you to choose entity types (`--entity-types Person,Organization`).
+Review and edit `ops/runs/b1/alternatives.json` before sampling if you like. The pilot measures real token use per stage and replaces the estimates in the plan; `run` refuses to start if the pilot exceeded the failure, refusal or malformed-output gates. If the graph would create more agents than the cap, the pilot stops and asks you to choose entity types (`--entity-types Person,Organization`). Every run builds its own ontology, so type names can differ between runs; a run whose graph lacks one of the chosen types stops before generating personas and lists the types it has (`--entity-types ""` clears the filter).
 
 ### 5. The real runs
 

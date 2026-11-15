@@ -275,6 +275,14 @@ class BatchHooks(RunHooks):
         total = sum(counts.values())
         cap = self.agent_cap
         listing = ", ".join(f"{kind} {n}" for kind, n in sorted(all_counts.items(), key=lambda kv: -kv[1]))
+        missing = [kind for kind in entity_types or [] if kind not in all_counts]
+        if missing:
+            # Every run generates its own ontology, so type names saved from an earlier run may not exist.
+            raise StopRun("entity_types_missing",
+                          f"entity type(s) {', '.join(missing)} are not in this run's graph, so the filter would "
+                          f"create only {total} of {sum(all_counts.values())} agents. Entities by type: {listing}. "
+                          "Run the same command with --entity-types TYPE,TYPE chosen from these types, or with "
+                          "--entity-types \"\" to make every entity an agent.")
         if total == 0:
             raise StopRun("no_agents", f"no agents for entity types {entity_types}; types in the graph: {listing}")
         if total > cap:

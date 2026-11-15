@@ -96,6 +96,21 @@ class PilotTests(BatchTestCase):
         summary = batch.pilot()
         self.assertEqual(summary["agents"], 9)
 
+    def test_entity_type_missing_from_this_runs_graph_stops_before_personas(self):
+        self.mirofish.entities = {"Person": 2, "OperationalStaff": 3, "FamilyBusinessLeader": 2}
+        batch = self.make_batch()
+        batch.state["entity_types"] = ["Person", "OperationalEmployee"]
+        with self.assertRaises(StopRun) as caught:
+            batch.pilot()
+        self.assertEqual(caught.exception.reason, "entity_types_missing")
+        message = str(caught.exception)
+        self.assertIn("OperationalEmployee are not in this run's graph", message)
+        self.assertIn("only 2 of 7 agents", message)
+        self.assertIn("OperationalStaff 3", message)
+        self.assertFalse(any(r["stage"] == "prepare" for r in Budget("b1").ledger()))
+        batch.state["entity_types"] = None
+        self.assertEqual(batch.pilot()["agents"], 7)
+
     def test_kill_switch_stops_rounds_cleanly_and_resume_restarts_them(self):
         self.usage = {"prompt_tokens": 20000, "completion_tokens": 100, "total_tokens": 20100}
         batch = self.make_batch(limits(pilot__max_spend=0.15, **TINY_ESTIMATES))
