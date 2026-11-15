@@ -1,0 +1,33 @@
+diff --git a/backend/tests/test_ontology_api_errors.py b/backend/tests/test_ontology_api_errors.py
+index cbfb320..25d6a7e 100644
+--- a/backend/tests/test_ontology_api_errors.py
++++ b/backend/tests/test_ontology_api_errors.py
+@@ -14,6 +14,7 @@ def _post_ontology(client):
+             "files": (io.BytesIO(b"A short source document."), "source.md"),
+         },
+         content_type="multipart/form-data",
++        base_url="http://localhost:5001",
+     )
+ 
+ 
+diff --git a/backend/tests/test_simulation_prepare_failure.py b/backend/tests/test_simulation_prepare_failure.py
+index 48db179..28721f9 100644
+--- a/backend/tests/test_simulation_prepare_failure.py
++++ b/backend/tests/test_simulation_prepare_failure.py
+@@ -39,8 +39,14 @@ def test_realtime_endpoints_expose_terminal_failure(tmp_path, monkeypatch):
+     app.config.update(TESTING=True)
+     client = app.test_client()
+ 
+-    config_response = client.get(f"/api/simulation/{simulation_id}/config/realtime")
+-    profile_response = client.get(f"/api/simulation/{simulation_id}/profiles/realtime")
++    config_response = client.get(
++        f"/api/simulation/{simulation_id}/config/realtime",
++        base_url="http://localhost:5001",
++    )
++    profile_response = client.get(
++        f"/api/simulation/{simulation_id}/profiles/realtime",
++        base_url="http://localhost:5001",
++    )
+ 
+     assert config_response.status_code == 200
+     expected_config_state = {
