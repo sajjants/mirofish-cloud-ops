@@ -1,6 +1,6 @@
 """Minimal client for the MiroFish REST API (standard library only, loopback only), and one resumable run.
 
-A run: ontology -> graph -> agents (count check, no LLM) -> simulation -> prepare -> schedule
+A run: ontology -> graph -> agents (count check, no LLM) -> simulation -> prepare (file count check) -> schedule
 -> rounds -> close_env -> report. Each finished stage is recorded in ops/runs/<RUN_ID>/manifest.json,
 so running the same RUN_ID again resumes after the last finished stage. A stage stopped by the
 kill switch or a failed check is marked 'interrupted' and starts again from its beginning on
@@ -31,6 +31,10 @@ RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 # event, which is how the backend detects the end of the rounds; only the parallel script does.
 PLATFORMS = ("parallel",)
 STAGES = ("ontology", "graph", "agents", "simulation", "prepare", "schedule", "rounds", "close_env", "report")
+PREPARE_PATH = "/api/simulation/prepare"
+# Must match the header and routes patch 0003 guards with MIROFISH_WRAPPER_TOKEN.
+WRAPPER_TOKEN_HEADER = "X-MiroFish-Wrapper-Token"
+WRAPPER_ONLY_PATHS = frozenset({"/api/simulation/create", PREPARE_PATH, "/api/report/generate"})
 
 
 class ApiError(RuntimeError):
@@ -64,12 +68,14 @@ def write_private_json(path: Path, payload: Dict[str, Any]) -> None:
 
 
 class MiroFishClient:
-    def __init__(self, base_url: str = "http://127.0.0.1:5001", timeout: float = 60.0):
+    def __init__(self, base_url: str = "http://127.0.0.1:5001", timeout: float = 60.0,
+                 wrapper_token: Optional[str] = None):
         host = urllib.parse.urlparse(base_url).hostname
         if host not in LOOPBACK_HOSTS:
             raise ValueError(f"refusing non-loopback MiroFish URL: {base_url}")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.wrapper_token = wrapper_token
         # An empty ProxyHandler ignores HTTP(S)_PROXY so requests can never leave the machine.
         self._opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -78,6 +84,8 @@ class MiroFishClient:
         request = urllib.request.Request(self.base_url + path, data=body, method=method)
         request.add_header("Accept", "application/json")
         request.add_header("Accept-Language", "en")
+        if self.wrapper_token and method == "POST" and path in WRAPPER_ONLY_PATHS:
+            request.add_header(WRAPPER_TOKEN_HEADER, self.wrapper_token)
         if content_type:
             request.add_header("Content-Type", content_type)
         try:
@@ -184,6 +192,10 @@ class RunHooks:
 
     def agents(self, graph_id: str, entity_types: Optional[List[str]]) -> Dict[str, Any]:
         """The agent-count check after the graph is built; may raise StopRun."""
+        return {}
+
+    def after_prepare(self, simulation_id: str, expected_agents: Optional[int]) -> Dict[str, Any]:
+        """Checks the files prepare wrote against the agent count; may raise StopRun."""
         return {}
 
     def before_rounds(self, simulation_id: str) -> Dict[str, Any]:
@@ -330,7 +342,7 @@ class RunPipeline:
         if (self.manifest["stages"].get("agents") or {}).get("status") == "done" and \
                 self.manifest["stages"]["agents"]["result"].get("entity_types") != entity_types:
             self.manifest["stages"]["agents"]["status"] = "superseded"
-        self._stage("agents", lambda: self.hooks.agents(graph_id, entity_types))
+        agents = self._stage("agents", lambda: self.hooks.agents(graph_id, entity_types))
 
         def simulation():
             data = c.post("/api/simulation/create", {
@@ -347,13 +359,18 @@ class RunPipeline:
             payload: Dict[str, Any] = {"simulation_id": simulation_id, "use_llm_for_profiles": True}
             if entity_types:
                 payload["entity_types"] = entity_types
-            data = c.post("/api/simulation/prepare", payload, timeout=300)
+            history = self.manifest["stages"]["prepare"].get("history") or []
+            if history and history[-1].get("reason") == "prepare_mismatch":
+                # Upstream would otherwise return the mismatched files as already prepared.
+                payload["force_regenerate"] = True
+            data = c.post(PREPARE_PATH, payload, timeout=300)
             if not data.get("already_prepared"):
                 task_id = data.get("task_id")
                 self._poll(lambda: c.post("/api/simulation/prepare/status",
                                           {"task_id": task_id, "simulation_id": simulation_id}),
                            lambda s: s.get("status") in ("completed", "ready"), "prepare", stage_timeout_s)
-            return {"expected_entities_count": data.get("expected_entities_count")}
+            checked = self.hooks.after_prepare(simulation_id, agents.get("agents"))
+            return {"expected_entities_count": data.get("expected_entities_count"), **checked}
 
         self._stage("prepare", prepare)
         self._stage("schedule", lambda: self.hooks.before_rounds(simulation_id))

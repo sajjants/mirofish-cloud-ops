@@ -130,7 +130,23 @@ class FakeMiroFish:
         self.max_rounds = 0
         self.stops = 0
         self.starts: List[Dict[str, Any]] = []
+        self.prepares: List[Dict[str, Any]] = []
         self.llm_statuses: List[int] = []
+        # Agents a concurrent prepare (e.g. the web page) leaves in the files, once; None for none.
+        self.overwrite_prepare_with: Optional[int] = None
+
+    def write_prepared(self, agents: int) -> None:
+        """The three files upstream's prepare writes, each with one entry per agent."""
+        sim_dir = self.simulations_dir / "sim_abc"
+        configs = [{"agent_id": i, "active_hours": list(range(0, 24)), "activity_level": 0.8} for i in range(agents)]
+        config = {"time_config": {"minutes_per_round": 60, "agents_per_hour_min": 2, "agents_per_hour_max": 4},
+                  "agent_configs": configs}
+        (sim_dir / "simulation_config.json").write_text(json.dumps(config), encoding="utf-8")
+        (sim_dir / "reddit_profiles.json").write_text(json.dumps([{"user_id": i} for i in range(agents)]),
+                                                      encoding="utf-8")
+        rows = "".join(f'{i},agent {i},agent_{i},"persona, {i}",desc\n' for i in range(agents))
+        (sim_dir / "twitter_profiles.csv").write_text("user_id,name,username,user_char,description\n" + rows,
+                                                      encoding="utf-8")
 
     def _llm(self, content: str, **extra: Any) -> None:
         status, _headers, _body = chat(self.relay_url, content, **extra)
@@ -170,19 +186,16 @@ class FakeMiroFish:
         if path == "/api/graph/build":
             return {"task_id": "t1"}
         if path == "/api/simulation/create":
-            sim_dir = self.simulations_dir / "sim_abc"
-            sim_dir.mkdir(parents=True, exist_ok=True)
-            agents = [{"agent_id": i, "active_hours": list(range(0, 24)), "activity_level": 0.8}
-                      for i in range(sum(self.entities.values()))]
-            config = {"time_config": {"minutes_per_round": 60, "agents_per_hour_min": 2, "agents_per_hour_max": 4},
-                      "agent_configs": agents}
-            (sim_dir / "simulation_config.json").write_text(json.dumps(config), encoding="utf-8")
+            (self.simulations_dir / "sim_abc").mkdir(parents=True, exist_ok=True)
             return {"simulation_id": "sim_abc"}
         if path == "/api/simulation/prepare":
+            self.prepares.append(payload)
             types = payload.get("entity_types")
             count = sum(self.entity_counts("g", types).values())
             for _ in range(count):
                 self._llm("write a persona", response_format={"type": "json_object"})
+            self.write_prepared(self.overwrite_prepare_with if self.overwrite_prepare_with is not None else count)
+            self.overwrite_prepare_with = None
             return {"task_id": "p1", "expected_entities_count": count}
         if path == "/api/simulation/prepare/status":
             return {"status": "completed"}

@@ -37,7 +37,7 @@ from ops.plan import COST_STAGES, format_plan, low_high, make_plan, measured_mod
     run_estimate, summarize, unmeasured_model
 from ops.pricing import Prices, load_prices
 from ops.relay import load_relay_state
-from ops.schedule import SIMULATIONS_DIR, apply_clock_shift
+from ops.schedule import SIMULATIONS_DIR, apply_clock_shift, prepared_agent_counts
 from ops.zep import ZepResources
 from ops.zep_usage import format_estimate, load_zep_limits
 
@@ -289,6 +289,17 @@ class BatchHooks(RunHooks):
         return {"agents": total, "graph_agents": sum(all_counts.values()), "counts": all_counts,
                 "entity_types": entity_types}
 
+    def after_prepare(self, simulation_id: str, expected_agents: Optional[int]) -> Dict[str, Any]:
+        counts = prepared_agent_counts(simulation_id, self.batch.simulations_dir)
+        wrong = {name: n for name, n in counts.items() if n != expected_agents}
+        if expected_agents is None or wrong:
+            found = ", ".join(f"{name} {'missing' if n is None else n}" for name, n in counts.items())
+            raise StopRun("prepare_mismatch",
+                          f"prepare wrote the wrong number of agents: expected {expected_agents}, found {found}. "
+                          "Something else (for example the MiroFish web page) may have started a prepare for "
+                          "this simulation. Run the same command again to regenerate the personas.")
+        return {"agent_files": counts}
+
     def before_rounds(self, simulation_id: str) -> Dict[str, Any]:
         b = self.batch
         result = apply_clock_shift(simulation_id, b.limits["simulation"]["clock_start_hour"], self.rounds, 2,
@@ -324,8 +335,9 @@ class Batch:
         self.limits = limits or load_limits()
         self.llm = llm or load_llm_config()
         self.prices = prices or load_prices()
-        self.client = client or MiroFishClient(f"http://127.0.0.1:{envfile.values(env_path).get('FLASK_PORT') or 5001}")
         self.relay = relay or RelayControl()
+        self.client = client or MiroFishClient(f"http://127.0.0.1:{envfile.values(env_path).get('FLASK_PORT') or 5001}",
+                                               wrapper_token=self.relay.state.get("wrapper_token"))
         self.log = log
         self.ask = ask
         self.interactive = interactive

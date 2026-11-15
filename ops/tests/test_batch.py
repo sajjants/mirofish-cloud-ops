@@ -1,13 +1,15 @@
+import http.server
 import io
 import json
 import os
+import threading
 import unittest
 
 from ops import paths, privacy
 from ops.batch import Batch, BatchError, BatchLock, RelayControl
 from ops.budget import Budget
 from ops.confirm import NotConfirmed, confirm
-from ops.mirofish_api import StopRun
+from ops.mirofish_api import WRAPPER_TOKEN_HEADER, MiroFishClient, StopRun
 from ops.tests.fake_provider import FakeProvider, completion
 from ops.tests.fake_zep import FAKE_ZEP_KEY
 from ops.tests.helpers import GRAPH_ID, SESSION, TERMS, FakeMiroFish, RelayFixture, TempState, \
@@ -115,6 +117,24 @@ class PilotTests(BatchTestCase):
         self.assertGreater(manifest["batch"]["spend"]["wasted"], 0)
         self.assertEqual(summary["rounds"], 10)
 
+    def test_wrong_agent_count_after_prepare_stops_before_rounds_and_resume_regenerates(self):
+        self.mirofish.overwrite_prepare_with = 21
+        batch = self.make_batch()
+        with self.assertRaises(StopRun) as caught:
+            batch.pilot()
+        self.assertEqual(caught.exception.reason, "prepare_mismatch")
+        self.assertIn("expected 6", str(caught.exception))
+        self.assertIn("reddit_profiles.json 21", str(caught.exception))
+        self.assertEqual(self.mirofish.starts, [])
+        self.assertNotIn("force_regenerate", self.mirofish.prepares[0])
+
+        summary = self.make_batch().pilot()
+        self.assertTrue(self.mirofish.prepares[-1]["force_regenerate"])
+        self.assertEqual(summary["agents"], 6)
+        manifest = json.loads((paths.RUNS_DIR / "b1_pilot" / "manifest.json").read_text())
+        self.assertEqual(manifest["stages"]["prepare"]["result"]["agent_files"],
+                         {"reddit_profiles.json": 6, "twitter_profiles.csv": 6, "simulation_config.json": 6})
+
     def test_admission_stops_before_a_stage_that_would_not_fit(self):
         batch = self.make_batch(limits(pilot__max_spend=0.01))
         with self.assertRaises(StopRun) as caught:
@@ -167,6 +187,12 @@ class PreflightTests(BatchTestCase):
             self.make_batch(phrase="yes").pilot()
         self.assertEqual(self.provider.requests, [])
 
+    def test_default_client_sends_this_starts_wrapper_token(self):
+        state = {**self.relay.state(), "wrapper_token": "wrapper-token-for-tests-only"}
+        batch = Batch("b1", relay=RelayControl(state=state), limits=limits(), llm=llm_config(self.provider.base_url),
+                      prices=prices(), env_path=self.env, zep_limits=None)
+        self.assertEqual(batch.client.wrapper_token, "wrapper-token-for-tests-only")
+
     def test_run_refuses_after_a_failed_pilot_gate(self):
         batch = self.make_batch()
         (self.batch_dir / "pilot.json").write_text(json.dumps({"gates": ["refusal rate 9.0% > 2.0%"]}))
@@ -183,6 +209,40 @@ class SmallPartsTests(unittest.TestCase):
             confirm("t", [], "send b1", "https://x.example/", ask=lambda _p: "send b1", out=out)
             with self.assertRaises(NotConfirmed):
                 confirm("t", [], "send b1", "https://x.example/", ask=lambda _p: "send", out=out)
+
+    def test_wrapper_token_is_sent_only_where_the_backend_requires_it(self):
+        seen = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def _answer(self):
+                self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                seen.append((self.command, self.path, self.headers.get(WRAPPER_TOKEN_HEADER)))
+                body = b'{"success": true, "data": {}}'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            do_GET = do_POST = _answer
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        client = MiroFishClient(f"http://127.0.0.1:{server.server_address[1]}", wrapper_token="tok")
+        client.post("/api/simulation/create", {"project_id": "p"})
+        client.post("/api/simulation/prepare", {"simulation_id": "sim_a"})
+        client.post("/api/simulation/prepare/status", {"task_id": "t"})
+        client.post("/api/report/generate", {"simulation_id": "sim_a"})
+        client.get("/api/simulation/sim_a/run-status")
+        self.assertEqual(seen, [("POST", "/api/simulation/create", "tok"),
+                                ("POST", "/api/simulation/prepare", "tok"),
+                                ("POST", "/api/simulation/prepare/status", None),
+                                ("POST", "/api/report/generate", "tok"),
+                                ("GET", "/api/simulation/sim_a/run-status", None)])
 
     def test_batch_lock_is_exclusive_and_stale_locks_are_taken_over(self):
         state = TempState(self)

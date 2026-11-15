@@ -343,6 +343,7 @@ def start(frontend: bool = True, relay_port: int = RELAY_PORT, foreground: bool 
     relay_state = rotate_relay_state(relay_port)
     register_secret(relay_state["session_token"])
     register_secret(relay_state["control_token"])
+    register_secret(relay_state["wrapper_token"])
     envfile.set_values(envfile.ENV_PATH, {
         "LLM_BASE_URL": f"http://127.0.0.1:{relay_port}/v1", "LLM_API_KEY": relay_state["session_token"],
         "LLM_MODEL_NAME": llm.stages["setup"].model, "FLASK_HOST": bind, "FLASK_DEBUG": "False"})
@@ -386,7 +387,8 @@ def start(frontend: bool = True, relay_port: int = RELAY_PORT, foreground: bool 
     if not wait_until(lambda: http_ok(f"http://127.0.0.1:{relay_port}/meter/health"), relay, WAIT_S["relay"]):
         return fail("relay", "the relay did not come up")
 
-    backend_env = {**base, "MIROFISH_NETAUDIT_ROLE": "mirofish", "ZEP_API_KEY": zep.value}
+    backend_env = {**base, "MIROFISH_NETAUDIT_ROLE": "mirofish", "ZEP_API_KEY": zep.value,
+                   "MIROFISH_WRAPPER_TOKEN": relay_state["wrapper_token"]}
     say(f"starting the MiroFish backend on {bind}:{backend_port}")
     backend = launch("backend", [str(upstream.backend_python()), "run.py"], paths.UPSTREAM_DIR / "backend",
                      backend_env)

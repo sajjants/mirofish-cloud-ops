@@ -17,6 +17,7 @@ activity_level, so the round has min(T, C) agent turns per platform.
 from __future__ import annotations
 
 import copy
+import csv
 import hashlib
 import json
 import os
@@ -159,6 +160,27 @@ def simulation_dir(simulation_id: str, simulations_dir: Path = SIMULATIONS_DIR) 
     if not SIMULATION_ID.match(simulation_id or ""):
         raise ValueError(f"unexpected simulation id {simulation_id!r}")
     return simulations_dir / simulation_id
+
+
+def prepared_agent_counts(simulation_id: str, simulations_dir: Path = SIMULATIONS_DIR) -> Dict[str, Any]:
+    """Agents in each file prepare writes; None for a file that is missing or unreadable."""
+    sim_dir = simulation_dir(simulation_id, simulations_dir)
+    counts: Dict[str, Any] = {}
+
+    def read(name: str, count) -> None:
+        try:
+            counts[name] = count(sim_dir / name)
+        except (OSError, ValueError, KeyError, TypeError, csv.Error):
+            counts[name] = None
+
+    def csv_rows(path: Path) -> int:
+        with open(path, newline="", encoding="utf-8") as handle:
+            return sum(1 for _ in csv.DictReader(handle))
+
+    read("reddit_profiles.json", lambda p: len(json.loads(p.read_text(encoding="utf-8"))))
+    read("twitter_profiles.csv", csv_rows)
+    read("simulation_config.json", lambda p: len(json.loads(p.read_text(encoding="utf-8"))["agent_configs"]))
+    return counts
 
 
 def _write_like(path: Path, text: str) -> None:

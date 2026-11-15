@@ -55,8 +55,13 @@ def load_relay_state(port: Optional[int] = None) -> Dict[str, Any]:
 
 
 def rotate_relay_state(port: int) -> Dict[str, Any]:
-    """New session and control tokens for a fresh start; the old ones stop working with the old relay."""
-    state = {"port": port, "session_token": secrets.token_urlsafe(32), "control_token": secrets.token_urlsafe(32)}
+    """New tokens for a fresh start; the old ones stop working with the old relay and backend.
+
+    wrapper_token is not used by the relay: the backend (patch 0003) accepts simulation create, prepare
+    and report generation only with it, so the wrapper can start that work and the web page cannot.
+    """
+    state = {"port": port, "session_token": secrets.token_urlsafe(32), "control_token": secrets.token_urlsafe(32),
+             "wrapper_token": secrets.token_urlsafe(32)}
     paths.write_private_text(paths.STATE_DIR / STATE_FILE, json.dumps(state, indent=2) + "\n")
     return state
 
