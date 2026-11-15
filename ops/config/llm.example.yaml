@@ -4,7 +4,7 @@
 provider:
   # Gemini's OpenAI-compatible endpoint (verified 2026-11-14 at ai.google.dev/gemini-api/docs/openai; beta).
   base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-  api_key_env: GEMINI_API_KEY          # or the OS keychain entry set with: python -m ops keys set gemini
+  api_key_env: GEMINI_API_KEY          # or the OS keychain entry set with: python -m ops keys set GEMINI_API_KEY
   timeout_seconds: 120
 
 # One model and reasoning effort per stage group. The relay rewrites each request's model and adds

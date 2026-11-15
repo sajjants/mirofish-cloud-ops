@@ -1,8 +1,10 @@
 import os
+import shutil
 import unittest
 from unittest import mock
 
 from ops import keys
+from ops.tools import secret_scan
 from ops.redact import REDACTED, redact, register_secret
 from ops.tests.fake_provider import FAKE_GOOGLE_KEY
 
@@ -20,6 +22,20 @@ class RedactionTests(unittest.TestCase):
         odd_secret = "zep_" + "q9" * 12
         register_secret(odd_secret)
         self.assertEqual(redact(f"value={odd_secret}."), f"value={REDACTED}.")
+
+
+class TrackedFilesTests(unittest.TestCase):
+    def test_the_scanner_finds_key_shaped_strings(self):
+        github = "ghp_" + "b2" * 18
+        findings = secret_scan.scan_items([("x.py", f"a = '{FAKE_GOOGLE_KEY}'\nb = '{github}'\n"),
+                                           ("ops/config/sensitive_terms.txt", "")], None)
+        self.assertEqual({f.rule for f in findings}, {"google-api-key", "github-token", "sensitive-terms-file"})
+
+    def test_no_tracked_file_contains_a_key_shaped_string_or_a_private_file(self):
+        if shutil.which("git") is None or not (secret_scan.REPO_ROOT / ".git").exists():
+            self.skipTest("not a git checkout")
+        findings = secret_scan.scan_items(secret_scan.tracked_items(), None)
+        self.assertEqual([f.format() for f in findings], [])
 
 
 class KeyLookupTests(unittest.TestCase):
