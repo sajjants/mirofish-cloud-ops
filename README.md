@@ -305,6 +305,4 @@ The pre-commit hook blocks commits that contain key-shaped strings, private file
 
 ## License
 
-Upstream MiroFish is AGPL-3.0, and `ops/patches/` is derived from it; see `NOTICE.md`.
-
-**TODO:** the license for the wrapper code has not been chosen. Until the owner chooses one, no license is granted; there is deliberately no `LICENSE` file.
+This repository is licensed under the GNU Affero General Public License v3.0 (`LICENSE`), the same license as upstream MiroFish. `ops/patches/` is derived from upstream; see `NOTICE.md`.

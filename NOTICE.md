@@ -12,7 +12,7 @@ Anything in `ops/patches/` modifies upstream MiroFish source. Those patches are 
 
 ## License of the wrapper code
 
-**TODO:** No license has been chosen yet for the wrapper code in this repository (everything outside `ops/patches/`). Until one is chosen, no license is granted. The owner must decide; there is no `LICENSE` file on purpose.
+The wrapper code in this repository (everything outside `ops/patches/`) is licensed under the GNU Affero General Public License v3.0; the full text is in `LICENSE`.
 
 ## Third-party tools
 
